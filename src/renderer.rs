@@ -1132,6 +1132,91 @@ impl Renderer {
         TileHighlight::None
     }
 
+    /// Renders a magnified (zoomed) view of a single tile face, centered on screen.
+    ///
+    /// Used for long-press magnification on mobile devices where tiles can be small.
+    /// Draws a large version of the tile face (3x normal size) with a semi-transparent
+    /// backdrop and a rounded border, overlaid on top of the game board.
+    ///
+    /// # Arguments
+    /// * `face_id` - The tile face texture index to magnify
+    pub fn render_magnified_tile(&mut self, face_id: u8) {
+        let (win_w, win_h) = self.window_size();
+
+        // Draw semi-transparent dark overlay behind the magnified tile
+        self.canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
+        self.canvas.set_draw_color(Color::RGBA(0, 0, 0, 140));
+        self.canvas.fill_rect(Rect::new(0, 0, win_w, win_h)).ok();
+
+        // Calculate magnified tile size: ~3x normal tile size, capped to window
+        let metrics = compute_layout_rect(win_w, win_h);
+        let normal_w = (2.0 * metrics.tile_width) as u32;
+        let normal_h = (2.0 * metrics.tile_height) as u32;
+
+        // Scale up by 3x but cap at 80% of window dimensions
+        let mag_w = (normal_w * 3).min((win_w as f32 * 0.8) as u32);
+        let mag_h = (normal_h * 3).min((win_h as f32 * 0.8) as u32);
+
+        // Center on screen
+        let mag_x = (win_w as i32 - mag_w as i32) / 2;
+        let mag_y = (win_h as i32 - mag_h as i32) / 2;
+
+        let mag_rect = Rect::new(mag_x, mag_y, mag_w, mag_h);
+
+        // Draw tile background (ivory card)
+        self.canvas.set_blend_mode(sdl2::render::BlendMode::None);
+        self.canvas.set_draw_color(self.tile_back_color);
+        self.canvas.fill_rect(mag_rect).ok();
+
+        // Draw outer border (dark)
+        self.canvas.set_draw_color(Color::RGB(60, 60, 60));
+        self.canvas.draw_rect(mag_rect).ok();
+        // Double border for emphasis
+        let outer2 = Rect::new(mag_x - 1, mag_y - 1, mag_w + 2, mag_h + 2);
+        self.canvas.draw_rect(outer2).ok();
+        let outer3 = Rect::new(mag_x - 2, mag_y - 2, mag_w + 4, mag_h + 4);
+        self.canvas.set_draw_color(Color::RGB(255, 215, 0)); // Gold border
+        self.canvas.draw_rect(outer3).ok();
+        let outer4 = Rect::new(mag_x - 3, mag_y - 3, mag_w + 6, mag_h + 6);
+        self.canvas.draw_rect(outer4).ok();
+
+        // Draw the face texture (or placeholder) within the magnified area with padding
+        let padding = 6;
+        let inner = Rect::new(
+            mag_x + padding,
+            mag_y + padding,
+            mag_w.saturating_sub(padding as u32 * 2),
+            mag_h.saturating_sub(padding as u32 * 2),
+        );
+
+        if let Some(Some(texture)) = self.tile_textures.get(face_id as usize) {
+            self.canvas.copy(texture, None, inner).ok();
+        } else {
+            // Fallback to placeholder color
+            let face_color = self.placeholders.color_for(face_id);
+            self.canvas.set_draw_color(face_color);
+            self.canvas.fill_rect(inner).ok();
+        }
+
+        // Draw inner border
+        self.canvas.set_draw_color(Color::RGB(60, 60, 60));
+        self.canvas.draw_rect(inner).ok();
+
+        // Draw "magnifying glass" hint text at the bottom
+        // (Simple indicator so the user knows this is a zoom view)
+        self.canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
+        let label_h: u32 = 20;
+        let label_y = mag_y + mag_h as i32 + 8;
+        let label_w: u32 = 140;
+        let label_x = (win_w as i32 - label_w as i32) / 2;
+        self.canvas.set_draw_color(Color::RGBA(0, 0, 0, 180));
+        self.canvas.fill_rect(Rect::new(label_x - 4, label_y - 2, label_w + 8, label_h + 4)).ok();
+        self.canvas.set_draw_color(Color::RGBA(255, 255, 255, 220));
+        // Draw a small "🔍 Hold to zoom" text area (just the background; actual text
+        // rendering would need TTF which is heavy — the visual overlay is self-explanatory)
+        self.canvas.set_blend_mode(sdl2::render::BlendMode::None);
+    }
+
     /// Returns the shuffle animation progress (0.0–1.0) if a shuffle animation is active.
     fn get_shuffle_progress(&self, state: &GameState, now: Instant) -> Option<f32> {
         for anim in &state.animations {

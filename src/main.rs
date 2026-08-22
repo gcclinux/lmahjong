@@ -147,6 +147,77 @@ fn parse_dev_args() -> DevMode {
     DevMode { enabled, start_level }
 }
 
+/// Checks if a raw SDL event type ID corresponds to a known SDL2 event type.
+///
+/// The sdl2 crate v0.37 uses `unsafe { transmute(n) }` in `EventType::try_from`,
+/// which causes undefined behavior (abort) if the value doesn't match any valid
+/// `SDL_EventType` discriminant. This function acts as a pre-filter to avoid that.
+fn is_known_sdl2_event_type(raw_type: u32) -> bool {
+    use sdl2::sys::SDL_EventType::*;
+    matches!(
+        raw_type,
+        x if x == SDL_FIRSTEVENT as u32
+            || x == SDL_QUIT as u32
+            || x == SDL_APP_TERMINATING as u32
+            || x == SDL_APP_LOWMEMORY as u32
+            || x == SDL_APP_WILLENTERBACKGROUND as u32
+            || x == SDL_APP_DIDENTERBACKGROUND as u32
+            || x == SDL_APP_WILLENTERFOREGROUND as u32
+            || x == SDL_APP_DIDENTERFOREGROUND as u32
+            || x == SDL_LOCALECHANGED as u32
+            || x == SDL_DISPLAYEVENT as u32
+            || x == SDL_WINDOWEVENT as u32
+            || x == SDL_SYSWMEVENT as u32
+            || x == SDL_KEYDOWN as u32
+            || x == SDL_KEYUP as u32
+            || x == SDL_TEXTEDITING as u32
+            || x == SDL_TEXTINPUT as u32
+            || x == SDL_KEYMAPCHANGED as u32
+            || x == SDL_TEXTEDITING_EXT as u32
+            || x == SDL_MOUSEMOTION as u32
+            || x == SDL_MOUSEBUTTONDOWN as u32
+            || x == SDL_MOUSEBUTTONUP as u32
+            || x == SDL_MOUSEWHEEL as u32
+            || x == SDL_JOYAXISMOTION as u32
+            || x == SDL_JOYBALLMOTION as u32
+            || x == SDL_JOYHATMOTION as u32
+            || x == SDL_JOYBUTTONDOWN as u32
+            || x == SDL_JOYBUTTONUP as u32
+            || x == SDL_JOYDEVICEADDED as u32
+            || x == SDL_JOYDEVICEREMOVED as u32
+            || x == SDL_JOYBATTERYUPDATED as u32
+            || x == SDL_CONTROLLERAXISMOTION as u32
+            || x == SDL_CONTROLLERBUTTONDOWN as u32
+            || x == SDL_CONTROLLERBUTTONUP as u32
+            || x == SDL_CONTROLLERDEVICEADDED as u32
+            || x == SDL_CONTROLLERDEVICEREMOVED as u32
+            || x == SDL_CONTROLLERDEVICEREMAPPED as u32
+            || x == SDL_CONTROLLERTOUCHPADDOWN as u32
+            || x == SDL_CONTROLLERTOUCHPADMOTION as u32
+            || x == SDL_CONTROLLERTOUCHPADUP as u32
+            || x == SDL_CONTROLLERSENSORUPDATE as u32
+            || x == SDL_FINGERDOWN as u32
+            || x == SDL_FINGERUP as u32
+            || x == SDL_FINGERMOTION as u32
+            || x == SDL_DOLLARGESTURE as u32
+            || x == SDL_DOLLARRECORD as u32
+            || x == SDL_MULTIGESTURE as u32
+            || x == SDL_CLIPBOARDUPDATE as u32
+            || x == SDL_DROPFILE as u32
+            || x == SDL_DROPTEXT as u32
+            || x == SDL_DROPBEGIN as u32
+            || x == SDL_DROPCOMPLETE as u32
+            || x == SDL_AUDIODEVICEADDED as u32
+            || x == SDL_AUDIODEVICEREMOVED as u32
+            || x == SDL_SENSORUPDATE as u32
+            || x == SDL_RENDER_TARGETS_RESET as u32
+            || x == SDL_RENDER_DEVICE_RESET as u32
+            || x == SDL_POLLSENTINEL as u32
+            || x == SDL_USEREVENT as u32
+            || x == SDL_LASTEVENT as u32
+    )
+}
+
 fn main() {
     // Parse command-line arguments for dev mode
     let dev_mode = parse_dev_args();
@@ -227,6 +298,14 @@ fn main() {
     let mut show_hint_suggestion = false;
     const INACTIVITY_HINT_SECS: u64 = 60;
 
+    // --- Tile magnification (long-press to zoom) ---
+    // Tracks the time and position of a mouse/touch press for long-press detection.
+    let mut press_start: Option<(Instant, i32, i32)> = None;
+    // The tile index being magnified (shown as a large overlay), if any.
+    let mut magnified_tile: Option<usize> = None;
+    /// Duration in milliseconds a press must be held to trigger magnification.
+    const MAGNIFY_HOLD_MS: u128 = 500;
+
     // Check for updates at startup (non-blocking: if network fails, silently skip)
     // Skip in dev mode to avoid unnecessary network calls
     let mut update_info: Option<UpdateInfo> = if dev_mode.enabled {
@@ -236,7 +315,7 @@ fn main() {
     };
 
     // SDL2 event pump
-    let mut event_pump = sdl_context
+    let event_pump = sdl_context
         .event_pump()
         .expect("Failed to create SDL2 event pump");
 
@@ -245,7 +324,27 @@ fn main() {
         let frame_start = Instant::now();
 
         // --- 7a. Poll SDL2 events and process through InputHandler ---
-        for event in event_pump.poll_iter() {
+        // NOTE: We call SDL_PollEvent via raw FFI and filter out unknown event types
+        // before calling Event::from_ll(). The sdl2 crate v0.37 uses unsafe transmute
+        // in EventType::try_from which causes UB/abort on event type IDs not present
+        // in the compiled SDL_EventType enum (happens with SDL3 compat shims on macOS).
+        loop {
+            let mut raw = std::mem::MaybeUninit::<sdl2::sys::SDL_Event>::uninit();
+            let has_event = unsafe { sdl2::sys::SDL_PollEvent(raw.as_mut_ptr()) == 1 };
+            if !has_event {
+                break;
+            }
+            let raw = unsafe { raw.assume_init() };
+            let raw_type = unsafe { raw.type_ };
+
+            // Only process events whose type ID matches a known SDL2 event type.
+            // This prevents the sdl2 crate's unsafe transmute from creating invalid
+            // enum values (which aborts the process) when SDL3 injects unknown events.
+            if !is_known_sdl2_event_type(raw_type) {
+                continue;
+            }
+
+            let event = sdl2::event::Event::from_ll(raw);
             // Dismiss daily streak popup on any keydown or click
             if daily_streak_achievement.is_some() {
                 match event {
@@ -792,6 +891,10 @@ fn main() {
 
                 match action {
                     GameAction::SelectTile(x, y) => {
+                        // Record press start for long-press magnification detection
+                        press_start = Some((Instant::now(), x, y));
+                        magnified_tile = None;
+
                         if game_state.status == GameStatus::Playing {
                             // Check if click is on the menu button (bottom-left corner)
                             let (win_w, win_h) = renderer.window_size();
@@ -1154,6 +1257,9 @@ fn main() {
                     }
 
                     GameAction::NewGame => {
+                        // Clear magnification state on new game
+                        press_start = None;
+                        magnified_tile = None;
                         let diff = game_state.difficulty; game_state = create_new_game_state_with_difficulty(diff);
                         game_state.timer.start();
                         quit_confirmation = false;
@@ -1278,6 +1384,29 @@ fn main() {
         // --- 7d. Expire completed animations ---
         expire_animations(&mut game_state);
 
+        // --- 7d2. Check for long-press tile magnification ---
+        // If the mouse/touch is no longer held, clear the magnification state.
+        if press_start.is_some() {
+            let mouse = event_pump.mouse_state();
+            if !mouse.left() {
+                // Button released — clear magnification
+                press_start = None;
+                magnified_tile = None;
+            }
+        }
+        if let Some((press_time, px, py)) = press_start {
+            if press_time.elapsed().as_millis() >= MAGNIFY_HOLD_MS && magnified_tile.is_none() {
+                // Long-press threshold reached — magnify the tile under the press position
+                if game_state.status == GameStatus::Playing {
+                    let (win_w, win_h) = renderer.window_size();
+                    let metrics = renderer::compute_layout_rect(win_w, win_h);
+                    if let Some(idx) = renderer::hit_test(px, py, &game_state, &metrics) {
+                        magnified_tile = Some(idx);
+                    }
+                }
+            }
+        }
+
         // --- 7e. Auto-dismiss hint after 3 seconds ---
         if let Some(ref hint) = game_state.hint {
             if hint.activated_at.elapsed() >= Duration::from_secs(HINT_DISMISS_SECS) {
@@ -1361,6 +1490,13 @@ fn main() {
             GameStatus::Shortcuts => {
                 renderer.render_board(&game_state, layout_rect);
                 renderer.render_shortcuts();
+            }
+        }
+
+        // --- Render magnified tile overlay (long-press zoom) ---
+        if let Some(tile_idx) = magnified_tile {
+            if let Some(tile) = game_state.board.tiles[tile_idx] {
+                renderer.render_magnified_tile(tile.face_id);
             }
         }
 

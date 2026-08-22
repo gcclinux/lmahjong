@@ -10,7 +10,7 @@ use sdl2::mouse::MouseButton;
 /// Actions that the player can trigger via input events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameAction {
-    /// Player clicked at screen coordinates (x, y) to select a tile.
+    /// Player pressed down at screen coordinates (x, y) to select a tile.
     SelectTile(i32, i32),
     /// Start a new game (Ctrl+N).
     NewGame,
