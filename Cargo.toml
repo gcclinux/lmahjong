@@ -1,6 +1,6 @@
 [package]
 name = "xmahjong"
-version = "0.2.5"
+version = "0.3.0"
 edition = "2021"
 description = "A Tux-themed Mahjong solitaire game"
 license = "GPL-3.0-or-later"

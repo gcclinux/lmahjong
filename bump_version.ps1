@@ -1,5 +1,5 @@
-# Usage: .\bump_version.ps1 0.2.0
-# Updates the version in both `release` and `Cargo.toml`.
+# Usage: .\bump_version.ps1 0.3.0
+# Updates the version in both `release` and `Cargo.toml`, and creates a new git tag.
 
 param(
     [Parameter(Mandatory=$false, Position=0)]
@@ -8,19 +8,31 @@ param(
 
 if (-not $NewVersion) {
     Write-Host "Usage: .\bump_version.ps1 <new_version>"
-    Write-Host "Example: .\bump_version.ps1 0.2.0"
+    Write-Host "Example: .\bump_version.ps1 0.3.0"
     exit 1
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+$Version = $NewVersion.TrimStart('v')
+$Tag = "v$Version"
+
 # Update the release file
-Set-Content -Path (Join-Path $ScriptDir "release") -Value $NewVersion -NoNewline
+Set-Content -Path (Join-Path $ScriptDir "release") -Value $Version -NoNewline
 
 # Update Cargo.toml version field
 $CargoPath = Join-Path $ScriptDir "Cargo.toml"
 $Content = Get-Content $CargoPath -Raw
-$Content = $Content -replace '(?m)^version = ".*"', "version = `"$NewVersion`""
+$Content = $Content -replace '(?m)^version = ".*"', "version = `"$Version`""
 Set-Content -Path $CargoPath -Value $Content -NoNewline
 
-Write-Host "Version updated to $NewVersion in both release and Cargo.toml"
+Write-Host "Version updated to $Version in both release and Cargo.toml"
+
+# Set new git tag
+try {
+    git tag -a $Tag -m "Release $Tag"
+    Write-Host "Created git tag $Tag"
+} catch {
+    Write-Warning "Failed to create git tag $Tag: $_"
+}
+
