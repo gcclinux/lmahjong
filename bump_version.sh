@@ -25,6 +25,10 @@ echo "Version updated to $VERSION in both release and Cargo.toml"
 
 # Set new git tag
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git tag -a "$TAG" -m "Release $TAG"
-    echo "Created git tag $TAG"
+    if git rev-parse "$TAG" >/dev/null 2>&1; then
+        echo "Git tag $TAG already exists."
+    else
+        git tag -a "$TAG" -m "Release $TAG"
+        echo "Created git tag $TAG"
+    fi
 fi

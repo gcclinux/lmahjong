@@ -30,8 +30,13 @@ Write-Host "Version updated to $Version in both release and Cargo.toml"
 
 # Set new git tag
 try {
-    git tag -a $Tag -m "Release $Tag"
-    Write-Host "Created git tag $Tag"
+    $existingTag = git tag -l $Tag
+    if ($existingTag) {
+        Write-Host "Git tag $Tag already exists."
+    } else {
+        git tag -a $Tag -m "Release $Tag"
+        Write-Host "Created git tag $Tag"
+    }
 } catch {
     Write-Warning "Failed to create git tag $Tag: $_"
 }
