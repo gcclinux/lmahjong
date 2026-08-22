@@ -14,7 +14,7 @@ use xmahjong::generator::BoardGenerator;
 use xmahjong::input::{GameAction, InputHandler};
 use xmahjong::logic::{self, GameOverReason, HintResult, SelectionResult};
 use xmahjong::renderer::{self, Renderer};
-use xmahjong::storage::{Leaderboard, LeaderboardEntry, SavedGame, Settings, ShuffleState};
+use xmahjong::storage::{Leaderboard, LeaderboardEntry, SavedGame, Settings, ShuffleState, TrophyState, UserProgress};
 use xmahjong::timer::GameTimer;
 
 /// Target frame duration for ~60 FPS (16.67ms per frame).
@@ -37,7 +37,7 @@ const RELEASE_DOWNLOAD_URL: &str = "https://github.com/gcclinux/xmahjong/release
 const ABOUT_URL: &str = "https://easysmartapps.co.uk/xmahjong";
 
 /// Maximum level number. Level progression stops at this level.
-const MAX_LEVEL: u32 = 100;
+const MAX_LEVEL: u32 = 1000;
 
 /// State for the update-available dialog shown at startup.
 struct UpdateInfo {
@@ -112,7 +112,7 @@ fn open_url(url: &str) {
 struct DevMode {
     /// Whether dev mode is active.
     enabled: bool,
-    /// Starting level (1-50). Only used when enabled is true.
+    /// Starting level (1-1000). Only used when enabled is true.
     start_level: u32,
 }
 
@@ -130,10 +130,10 @@ fn parse_dev_args() -> DevMode {
             "--level" => {
                 if i + 1 < args.len() {
                     if let Ok(lvl) = args[i + 1].parse::<u32>() {
-                        if (1..=100).contains(&lvl) {
+                        if (1..=MAX_LEVEL).contains(&lvl) {
                             start_level = lvl;
                         } else {
-                            eprintln!("[xMahjong] Warning: --level must be 1-100, got {}. Using 1.", lvl);
+                            eprintln!("[xMahjong] Warning: --level must be 1-{}, got {}. Using 1.", MAX_LEVEL, lvl);
                         }
                     }
                     i += 1;
@@ -283,7 +283,10 @@ fn main() {
     let mut leaderboard_return_status = GameStatus::Won;
     // Track the currently selected menu item in the pause menu (0-indexed)
     let mut pause_menu_selection: usize = 0;
-    const PAUSE_MENU_ITEM_COUNT: usize = 10;
+    const PAUSE_MENU_ITEM_COUNT: usize = 11;
+    // Track level select page (0-indexed, 25 levels per page) and chosen level (1..=1000)
+    let mut level_select_page: usize = 0;
+    let mut level_select_chosen: u32 = 1;
     // Track the currently selected menu item in the victory dialog (0-indexed)
     let mut victory_menu_selection: usize = 0;
     // Track the currently selected item in the No Moves dialog (0=Shuffle, 1=New Game)
@@ -393,6 +396,11 @@ fn main() {
                                         } else {
                                             create_new_game_state()
                                         };
+
+                                        // Synchronize user progress with current game level
+                                        if !dev_mode.enabled {
+                                            UserProgress::load_and_sync(&current_user_name, game_state.level);
+                                        }
 
                                         // Load shuffle state and apply daily bonus for user
                                         let mut shuffle_state = ShuffleState::load(&current_user_name);
@@ -519,26 +527,34 @@ fn main() {
                                     }
                                 }
                                 4 => {
+                                    // LEVELS
+                                    UserProgress::load_and_sync(&current_user_name, game_state.level);
+                                    let start_lvl = game_state.level.min(1000);
+                                    level_select_page = ((start_lvl - 1) / 25) as usize;
+                                    level_select_chosen = start_lvl;
+                                    game_state.status = GameStatus::LevelSelect;
+                                }
+                                5 => {
                                     // SHORTCUTS
                                     game_state.status = GameStatus::Shortcuts;
                                 }
-                                5 => {
+                                6 => {
                                     // LEADERBOARD
                                     leaderboard_return_status = GameStatus::Paused;
                                     game_state.status = GameStatus::Leaderboard;
                                 }
-                                6 => {
+                                7 => {
                                     // DIFFICULTY toggle
                                     game_state.difficulty = match game_state.difficulty {
                                         Difficulty::Easy => Difficulty::Normal,
                                         Difficulty::Normal => Difficulty::Easy,
                                     };
                                 }
-                                7 => {
+                                8 => {
                                     // ABOUT — open website in default browser
                                     let _ = open::that(ABOUT_URL);
                                 }
-                                8 => {
+                                9 => {
                                     // SWITCH USER
                                     if !dev_mode.enabled {
                                         save_current_game(&game_state, &current_user_name);
@@ -548,7 +564,7 @@ fn main() {
                                     game_state.status = GameStatus::NameEntry;
                                     pause_menu_selection = 0;
                                 }
-                                9 => {
+                                10 => {
                                     // SAVE + QUIT
                                     if !dev_mode.enabled {
                                         save_current_game(&game_state, &current_user_name);
@@ -557,6 +573,81 @@ fn main() {
                                 }
                                 _ => {}
                             }
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // --- Handle level select keyboard navigation ---
+            if game_state.status == GameStatus::LevelSelect {
+                if let sdl2::event::Event::KeyDown { keycode: Some(keycode), .. } = &event {
+                    match *keycode {
+                        sdl2::keyboard::Keycode::Left => {
+                            if level_select_chosen > 1 {
+                                level_select_chosen -= 1;
+                            } else {
+                                level_select_chosen = 1000;
+                            }
+                            level_select_page = ((level_select_chosen - 1) / 25) as usize;
+                            continue;
+                        }
+                        sdl2::keyboard::Keycode::Right => {
+                            if level_select_chosen < 1000 {
+                                level_select_chosen += 1;
+                            } else {
+                                level_select_chosen = 1;
+                            }
+                            level_select_page = ((level_select_chosen - 1) / 25) as usize;
+                            continue;
+                        }
+                        sdl2::keyboard::Keycode::Up => {
+                            if level_select_chosen > 5 {
+                                level_select_chosen -= 5;
+                            }
+                            level_select_page = ((level_select_chosen - 1) / 25) as usize;
+                            continue;
+                        }
+                        sdl2::keyboard::Keycode::Down => {
+                            if level_select_chosen + 5 <= 1000 {
+                                level_select_chosen += 5;
+                            }
+                            level_select_page = ((level_select_chosen - 1) / 25) as usize;
+                            continue;
+                        }
+                        sdl2::keyboard::Keycode::PageUp
+                        | sdl2::keyboard::Keycode::LeftBracket => {
+                            if level_select_page > 0 {
+                                level_select_page -= 1;
+                                level_select_chosen = (level_select_page * 25 + 1) as u32;
+                            }
+                            continue;
+                        }
+                        sdl2::keyboard::Keycode::PageDown
+                        | sdl2::keyboard::Keycode::RightBracket => {
+                            if level_select_page + 1 < 40 {
+                                level_select_page += 1;
+                                level_select_chosen = (level_select_page * 25 + 1) as u32;
+                            }
+                            continue;
+                        }
+                        sdl2::keyboard::Keycode::Return
+                        | sdl2::keyboard::Keycode::KpEnter => {
+                            let user_progress = UserProgress::load_and_sync(&current_user_name, game_state.level);
+                            if user_progress.is_level_unlocked(level_select_chosen) {
+                                let diff = game_state.difficulty;
+                                game_state = create_new_game_state_for_level(level_select_chosen, diff);
+                                game_state.timer.start();
+                                game_state.status = GameStatus::Playing;
+                                quit_confirmation = false;
+                                last_activity_time = Instant::now();
+                                show_hint_suggestion = false;
+                            }
+                            continue;
+                        }
+                        sdl2::keyboard::Keycode::Escape => {
+                            game_state.status = GameStatus::Paused;
                             continue;
                         }
                         _ => {}
@@ -964,6 +1055,9 @@ fn main() {
                                         let mut leaderboard = Leaderboard::load(&current_user_name);
                                         leaderboard.insert(lb_entry);
                                         leaderboard.save(&current_user_name);
+                                        let mut progress = UserProgress::load(&current_user_name);
+                                        progress.mark_completed(game_state.level);
+                                        progress.save(&current_user_name);
                                     }
                                     game_state.status = GameStatus::Won;
                                 }
@@ -972,15 +1066,15 @@ fn main() {
                             // Handle clicks on pause menu buttons
                             let (win_w, win_h) = renderer.window_size();
                             let dialog_w: u32 = 300;
-                            let dialog_h: u32 = 590;
+                            let dialog_h: u32 = 610;
                             let dialog_x = (win_w.saturating_sub(dialog_w)) / 2;
                             let dialog_y = (win_h.saturating_sub(dialog_h)) / 2;
 
                             let btn_w: u32 = 220;
-                            let btn_h: u32 = 40;
+                            let btn_h: u32 = 36;
                             let btn_x = dialog_x as i32 + ((dialog_w - btn_w) / 2) as i32;
-                            let start_y = dialog_y as i32 + 60;
-                            let spacing: i32 = 48;
+                            let start_y = dialog_y as i32 + 52;
+                            let spacing: i32 = 44;
 
                             // Check which button was clicked
                             if x >= btn_x && x < btn_x + btn_w as i32 {
@@ -1015,22 +1109,29 @@ fn main() {
                                         audio.play_shuffle();
                                     }
                                 } else if y >= start_y + spacing * 4 && y < start_y + spacing * 4 + btn_h as i32 {
+                                    // LEVELS
+                                    UserProgress::load_and_sync(&current_user_name, game_state.level);
+                                    let start_lvl = game_state.level.min(1000);
+                                    level_select_page = ((start_lvl - 1) / 25) as usize;
+                                    level_select_chosen = start_lvl;
+                                    game_state.status = GameStatus::LevelSelect;
+                                } else if y >= start_y + spacing * 5 && y < start_y + spacing * 5 + btn_h as i32 {
                                     // SHORTCUTS
                                     game_state.status = GameStatus::Shortcuts;
-                                } else if y >= start_y + spacing * 5 && y < start_y + spacing * 5 + btn_h as i32 {
-                                    // LEADERBOARD
+                                } else if y >= start_y + spacing * 6 && y < start_y + spacing * 6 + btn_h as i32 {
+                                    // LEADERBOARD / ACHIEVEMENTS
                                     leaderboard_return_status = GameStatus::Paused;
                                     game_state.status = GameStatus::Leaderboard;
-                                } else if y >= start_y + spacing * 6 && y < start_y + spacing * 6 + btn_h as i32 {
+                                } else if y >= start_y + spacing * 7 && y < start_y + spacing * 7 + btn_h as i32 {
                                     // DIFFICULTY toggle
                                     game_state.difficulty = match game_state.difficulty {
                                         Difficulty::Easy => Difficulty::Normal,
                                         Difficulty::Normal => Difficulty::Easy,
                                     };
-                                } else if y >= start_y + spacing * 7 && y < start_y + spacing * 7 + btn_h as i32 {
+                                } else if y >= start_y + spacing * 8 && y < start_y + spacing * 8 + btn_h as i32 {
                                     // ABOUT — open website in default browser
                                     let _ = open::that(ABOUT_URL);
-                                } else if y >= start_y + spacing * 8 && y < start_y + spacing * 8 + btn_h as i32 {
+                                } else if y >= start_y + spacing * 9 && y < start_y + spacing * 9 + btn_h as i32 {
                                     // SWITCH USER
                                     if !dev_mode.enabled {
                                         save_current_game(&game_state, &current_user_name);
@@ -1039,7 +1140,7 @@ fn main() {
                                     name_entry = Some(NameEntryState::new(0, 0, 0, 0, 0));
                                     game_state.status = GameStatus::NameEntry;
                                     pause_menu_selection = 0;
-                                } else if y >= start_y + spacing * 9 && y < start_y + spacing * 9 + btn_h as i32 {
+                                } else if y >= start_y + spacing * 10 && y < start_y + spacing * 10 + btn_h as i32 {
                                     // SAVE + QUIT
                                     if !dev_mode.enabled {
                                         save_current_game(&game_state, &current_user_name);
@@ -1250,6 +1351,109 @@ fn main() {
 
                             if x >= btn_x && x < btn_x + btn_w as i32
                                 && y >= btn_y && y < btn_y + btn_h as i32
+                            {
+                                game_state.status = GameStatus::Paused;
+                            }
+                        } else if game_state.status == GameStatus::LevelSelect {
+                            // Handle clicks on Level Select dialog
+                            let (win_w, win_h) = renderer.window_size();
+                            let dialog_w: u32 = 720;
+                            let dialog_h: u32 = 590;
+                            let dialog_x = (win_w.saturating_sub(dialog_w)) / 2;
+                            let dialog_y = (win_h.saturating_sub(dialog_h)) / 2;
+
+                            // Phase jump tabs (y in dialog_y + 78 .. dialog_y + 106)
+                            let tab_w: u32 = 124;
+                            let tab_h: u32 = 28;
+                            let tab_gap: i32 = 8;
+                            let tabs_total_w = (tab_w as i32 * 5) + (tab_gap * 4);
+                            let tab_start_x = dialog_x as i32 + (dialog_w as i32 - tabs_total_w) / 2;
+                            let tab_y = dialog_y as i32 + 78;
+
+                            if y >= tab_y && y < tab_y + tab_h as i32 {
+                                for (i, target_level) in [1u32, 11, 21, 51, 101].iter().enumerate() {
+                                    let tx = tab_start_x + i as i32 * (tab_w as i32 + tab_gap);
+                                    if x >= tx && x < tx + tab_w as i32 {
+                                        level_select_chosen = *target_level;
+                                        level_select_page = ((*target_level - 1) / 25) as usize;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // 5x5 Grid of levels
+                            let grid_cols = 5;
+                            let grid_rows = 5;
+                            let cell_w: u32 = 116;
+                            let cell_h: u32 = 54;
+                            let cell_gap_x: i32 = 12;
+                            let cell_gap_y: i32 = 10;
+                            let grid_total_w = (cell_w as i32 * grid_cols) + (cell_gap_x * (grid_cols - 1));
+                            let grid_start_x = dialog_x as i32 + (dialog_w as i32 - grid_total_w) / 2;
+                            let grid_start_y = dialog_y as i32 + 116;
+
+                            let page_start_level = (level_select_page * 25 + 1) as u32;
+
+                            for row in 0..grid_rows {
+                                for col in 0..grid_cols {
+                                    let idx = row * grid_cols + col;
+                                    let level = page_start_level + idx as u32;
+                                    if level > 1000 {
+                                        continue;
+                                    }
+                                    let cx = grid_start_x + col * (cell_w as i32 + cell_gap_x);
+                                    let cy = grid_start_y + row * (cell_h as i32 + cell_gap_y);
+
+                                    if x >= cx && x < cx + cell_w as i32
+                                        && y >= cy && y < cy + cell_h as i32
+                                    {
+                                        level_select_chosen = level;
+                                        let user_progress = UserProgress::load_and_sync(&current_user_name, game_state.level);
+                                        if user_progress.is_level_unlocked(level) {
+                                            let diff = game_state.difficulty;
+                                            game_state = create_new_game_state_for_level(level, diff);
+                                            game_state.timer.start();
+                                            game_state.status = GameStatus::Playing;
+                                            quit_confirmation = false;
+                                            last_activity_time = Instant::now();
+                                            show_hint_suggestion = false;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Bottom Navigation: PREV button
+                            let nav_y = dialog_y as i32 + 444;
+                            let nav_btn_w: u32 = 130;
+                            let nav_btn_h: u32 = 38;
+                            let prev_x = grid_start_x;
+                            if x >= prev_x && x < prev_x + nav_btn_w as i32
+                                && y >= nav_y && y < nav_y + nav_btn_h as i32
+                            {
+                                if level_select_page > 0 {
+                                    level_select_page -= 1;
+                                    level_select_chosen = (level_select_page * 25 + 1) as u32;
+                                }
+                            }
+
+                            // NEXT button
+                            let next_x = grid_start_x + grid_total_w - nav_btn_w as i32;
+                            if x >= next_x && x < next_x + nav_btn_w as i32
+                                && y >= nav_y && y < nav_y + nav_btn_h as i32
+                            {
+                                if level_select_page + 1 < 40 {
+                                    level_select_page += 1;
+                                    level_select_chosen = (level_select_page * 25 + 1) as u32;
+                                }
+                            }
+
+                            // BACK button
+                            let back_w: u32 = 160;
+                            let back_h: u32 = 40;
+                            let back_x = dialog_x as i32 + (dialog_w as i32 - back_w as i32) / 2;
+                            let back_y = dialog_y as i32 + 494;
+                            if x >= back_x && x < back_x + back_w as i32
+                                && y >= back_y && y < back_y + back_h as i32
                             {
                                 game_state.status = GameStatus::Paused;
                             }
@@ -1491,6 +1695,11 @@ fn main() {
                 renderer.render_board(&game_state, layout_rect);
                 renderer.render_shortcuts();
             }
+            GameStatus::LevelSelect => {
+                renderer.render_board(&game_state, layout_rect);
+                let user_progress = UserProgress::load_and_sync(&current_user_name, game_state.level);
+                renderer.render_level_select(&current_user_name, &user_progress, level_select_page, level_select_chosen);
+            }
         }
 
         // --- Render magnified tile overlay (long-press zoom) ---
@@ -1571,7 +1780,7 @@ fn handle_select_tile(
                 audio.play_victory();
 
                 // Check and award repeatable trophies
-                let mut trophies = xmahjong::storage::TrophyState::load(user_name);
+                let mut trophies = TrophyState::load(user_name);
                 trophies.check_perfect_combo(state.score.mismatches);
                 let level_elapsed = state.timer.elapsed_seconds();
                 trophies.check_rapid_clear(state.level, level_elapsed);
@@ -1579,6 +1788,9 @@ fn handle_select_tile(
                 trophies.check_no_shuffles(state.score.shuffles_used);
                 trophies.check_no_undos(state.score.undos_used);
                 if !dev_mode_enabled {
+                    let mut progress = UserProgress::load(user_name);
+                    progress.mark_completed(state.level);
+                    progress.save(user_name);
                     trophies.save(user_name);
                 }
 
@@ -1629,7 +1841,7 @@ fn create_new_game_state_for_level(level: u32, difficulty: Difficulty) -> GameSt
                 .expect("Failed to generate board after 5 attempts")
         }
     } else {
-        // Levels 11-50: use custom face pool (penguins + dogs + space)
+        // Levels 11-1000: use custom face pool (penguins + dogs + space + ocean)
         generator
             .generate_with_faces(layout, tile_count, &face_pool, 10)
             .expect("Failed to generate board after 10 attempts")

@@ -2,7 +2,7 @@
 
 use proptest::prelude::*;
 
-use xmahjong::storage::{Leaderboard, LeaderboardEntry};
+use xmahjong::storage::{Leaderboard, LeaderboardEntry, UserProgress};
 
 // Feature: xmahjong, Property 17: Leaderboard Invariants
 //
@@ -87,17 +87,15 @@ proptest! {
 
 use xmahjong::storage::SavedGame;
 
-// Feature: space-levels, Property 8: Save/load level round-trip
+// Feature: extended-levels, Property 8: Save/load level round-trip
 //
-// **Validates: Requirements 5.4**
-//
-// For any level N in 1..=50, serializing a SavedGame with that level
+// For any level N in 1..=1000, serializing a SavedGame with that level
 // and deserializing it back preserves the level value exactly.
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
     #[test]
-    fn property_8_save_load_level_round_trip(level in 1u32..=50) {
+    fn property_8_save_load_level_round_trip(level in 1u32..=1000) {
         let saved = SavedGame {
             tiles: vec![Some(0); 144],
             undo_stack: Vec::new(),
@@ -128,23 +126,21 @@ proptest! {
         prop_assert_eq!(loaded.level, level,
             "Level not preserved: saved {}, loaded {}", level, loaded.level);
 
-        // Also verify the validation would pass (1..=50)
-        prop_assert!((1..=50).contains(&loaded.level),
+        // Also verify the validation would pass (1..=1000)
+        prop_assert!((1..=1000).contains(&loaded.level),
             "Loaded level {} is outside valid range", loaded.level);
     }
 }
 
-// Feature: space-levels, Property 9: Invalid level in save is rejected
+// Feature: extended-levels, Property 9: Invalid level in save is rejected
 //
-// **Validates: Requirements 5.5**
-//
-// For any level value outside 1..=50, deserializing a SavedGame with that level
+// For any level value outside 1..=1000, deserializing a SavedGame with that level
 // and applying the validation filter should return None.
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
     #[test]
-    fn property_9_invalid_level_rejected(level in prop_oneof![Just(0u32), 51u32..=255]) {
+    fn property_9_invalid_level_rejected(level in prop_oneof![Just(0u32), 1001u32..=5000]) {
         let saved = SavedGame {
             tiles: vec![Some(0); 144],
             undo_stack: Vec::new(),
@@ -170,10 +166,51 @@ proptest! {
         // Deserialize and apply the same validation that load() uses
         let loaded: Option<SavedGame> = serde_json::from_str::<SavedGame>(&json)
             .ok()
-            .filter(|s| (1..=50).contains(&s.level));
+            .filter(|s| (1..=1000).contains(&s.level));
 
         // Should be None because level is outside valid range
         prop_assert!(loaded.is_none(),
             "Level {} should be rejected but was accepted", level);
     }
+
+    #[test]
+    fn property_user_progress_roundtrip(
+        max_level in 0u32..=1000,
+        levels in prop::collection::vec(1u32..=1000, 0..50),
+    ) {
+        let mut progress = UserProgress {
+            max_completed_level: max_level,
+            completed_levels: levels,
+        };
+        progress.completed_levels.sort_unstable();
+        progress.completed_levels.dedup();
+
+        let json = serde_json::to_string(&progress).expect("serialization failed");
+        let loaded: UserProgress = serde_json::from_str(&json).expect("deserialization failed");
+
+        prop_assert_eq!(progress, loaded);
+    }
+
+    #[test]
+    fn property_user_progress_unlocking_invariants(
+        completed in prop::collection::vec(1u32..=1000, 1..30),
+    ) {
+        let mut progress = UserProgress::default();
+        // Level 1 is always unlocked
+        prop_assert!(progress.is_level_unlocked(1));
+
+        for &lvl in &completed {
+            progress.mark_completed(lvl);
+            prop_assert!(progress.is_level_completed(lvl));
+            prop_assert!(progress.is_level_unlocked(lvl));
+            if lvl < 1000 {
+                prop_assert!(progress.is_level_unlocked(lvl + 1));
+            }
+        }
+
+        // max_completed_level is at least the maximum completed level
+        let max_c = completed.iter().copied().max().unwrap_or(0);
+        prop_assert!(progress.max_completed_level >= max_c);
+    }
 }
+

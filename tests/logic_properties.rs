@@ -618,7 +618,7 @@ proptest! {
 // **Validates: Requirements 5.2, 5.3, 6.1, 6.2, 6.3**
 
 /// Maximum level — mirrors the constant defined in main.rs.
-const MAX_LEVEL: u32 = 100;
+const MAX_LEVEL: u32 = 1000;
 
 /// Computes the victory menu item count for a given level.
 fn victory_menu_item_count(level: u32) -> usize {
@@ -634,7 +634,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
     #[test]
-    fn property_7_victory_menu_by_max_level(level in 1u32..=100) {
+    fn property_7_victory_menu_by_max_level(level in 1u32..=1000) {
         if level < MAX_LEVEL {
             prop_assert_eq!(victory_menu_item_count(level), 3,
                 "Level {}: menu items should be 3 (below max)", level);
@@ -743,11 +743,82 @@ proptest! {
 }
 
 
+// Feature: grandmaster-levels, Property 1: Grandmaster Mixed Phase level parameters
+//
+// For any level in 101..=1000, tiles_for_level SHALL return 144 and
+// face_pool_for_level SHALL return a vector of length 200.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(100))]
+
+    #[test]
+    fn property_grandmaster_level_parameters(level in 101u32..=1000) {
+        let tiles = xmahjong::levels::tiles_for_level(level);
+        let pool = xmahjong::levels::face_pool_for_level(level);
+
+        prop_assert_eq!(tiles, 144,
+            "Level {}: tiles_for_level should return 144, got {}", level, tiles);
+        prop_assert_eq!(pool.len(), 200,
+            "Level {}: face pool size should be 200, got {}", level, pool.len());
+    }
+}
+
+
+// Feature: grandmaster-levels, Property 2: Grandmaster Mixed Phase 25% 4-pack distribution
+//
+// For any level in 101..=1000, the face pool SHALL contain an equal 25% distribution
+// across all 4 theme packs: exactly 50 penguin (0-49), 50 dog (50-99), 50 space (100-149),
+// and 50 ocean (150-199) faces.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(100))]
+
+    #[test]
+    fn property_grandmaster_face_pool_distribution(level in 101u32..=1000) {
+        let pool = xmahjong::levels::face_pool_for_level(level);
+
+        prop_assert_eq!(pool.len(), 200,
+            "Level {}: pool size should be 200, got {}", level, pool.len());
+
+        let penguin_ids: Vec<u8> = pool.iter().copied().filter(|&id| id < 50).collect();
+        let dog_ids: Vec<u8> = pool.iter().copied().filter(|&id| id >= 50 && id < 100).collect();
+        let space_ids: Vec<u8> = pool.iter().copied().filter(|&id| id >= 100 && id < 150).collect();
+        let ocean_ids: Vec<u8> = pool.iter().copied().filter(|&id| id >= 150 && id < 200).collect();
+
+        // Exactly 50 each (25% each)
+        prop_assert_eq!(penguin_ids.len(), 50,
+            "Level {}: penguin count should be 50 (25%), got {}", level, penguin_ids.len());
+        prop_assert_eq!(dog_ids.len(), 50,
+            "Level {}: dog count should be 50 (25%), got {}", level, dog_ids.len());
+        prop_assert_eq!(space_ids.len(), 50,
+            "Level {}: space count should be 50 (25%), got {}", level, space_ids.len());
+        prop_assert_eq!(ocean_ids.len(), 50,
+            "Level {}: ocean count should be 50 (25%), got {}", level, ocean_ids.len());
+
+        // Check sequential wrapping
+        for (i, &id) in penguin_ids.iter().enumerate() {
+            prop_assert_eq!(id, (i % 50) as u8,
+                "Level {}: penguin ID at index {} should be {}, got {}", level, i, (i % 50) as u8, id);
+        }
+        for (i, &id) in dog_ids.iter().enumerate() {
+            prop_assert_eq!(id, 50 + (i % 50) as u8,
+                "Level {}: dog ID at index {} should be {}, got {}", level, i, 50 + (i % 50) as u8, id);
+        }
+        for (i, &id) in space_ids.iter().enumerate() {
+            prop_assert_eq!(id, 100 + (i % 50) as u8,
+                "Level {}: space ID at index {} should be {}, got {}", level, i, 100 + (i % 50) as u8, id);
+        }
+        for (i, &id) in ocean_ids.iter().enumerate() {
+            prop_assert_eq!(id, 150 + (i % 50) as u8,
+                "Level {}: ocean ID at index {} should be {}, got {}", level, i, 150 + (i % 50) as u8, id);
+        }
+    }
+}
+
+
 // Feature: extended-levels, Property 5: Save system rejects invalid levels
 //
 // **Validates: Requirements 5.3**
 //
-// For any SavedGame with level == 0 or level > 100, the validation filter
+// For any SavedGame with level == 0 or level > 1000, the validation filter
 // used by SavedGame::load() SHALL reject the save and return None.
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
@@ -755,14 +826,14 @@ proptest! {
     #[test]
     fn property_5_save_system_rejects_invalid_levels(level in prop_oneof![
         Just(0u32),
-        101u32..=u32::MAX,
+        1001u32..=u32::MAX,
     ]) {
         // The validation logic used in SavedGame::load() is:
-        //   saved.filter(|s| (1..=100).contains(&s.level))
-        // For any level outside 1..=100, this filter must return None.
-        let is_valid = (1..=100).contains(&level);
+        //   saved.filter(|s| (1..=1000).contains(&s.level))
+        // For any level outside 1..=1000, this filter must return None.
+        let is_valid = (1..=1000).contains(&level);
         prop_assert!(!is_valid,
-            "Level {} should be rejected by the save validation filter, but (1..=100).contains({}) returned true",
+            "Level {} should be rejected by the save validation filter, but (1..=1000).contains({}) returned true",
             level, level);
     }
 }
@@ -772,7 +843,7 @@ proptest! {
 //
 // **Validates: Requirements 1.5, 5.1, 5.2**
 //
-// For any valid SavedGame with level in 1..=100, serializing to JSON and
+// For any valid SavedGame with level in 1..=1000, serializing to JSON and
 // deserializing back SHALL produce an identical struct with all fields preserved.
 
 use xmahjong::storage::SavedGame;
@@ -783,16 +854,16 @@ fn arb_difficulty() -> impl Strategy<Value = String> {
 
 fn arb_saved_game() -> impl Strategy<Value = SavedGame> {
     (
-        // tiles: Vec<Option<u8>> of length 144
-        proptest::collection::vec(proptest::option::of(0u8..150), 144..=144),
+        // tiles: Vec<Option<u8>> of length 144 with face IDs 0..200
+        proptest::collection::vec(proptest::option::of(0u8..200), 144..=144),
         // undo_stack: Vec<(usize, u8, usize, u8)> up to 10 entries
-        proptest::collection::vec((0usize..144, 0u8..150, 0usize..144, 0u8..150), 0..=10),
+        proptest::collection::vec((0usize..144, 0u8..200, 0usize..144, 0u8..200), 0..=10),
         // elapsed_ms
         0u64..3_600_000,
         // hints_used, shuffles_used, shuffles_remaining, pairs_matched, undos_used
         (0u32..100, 0u32..100, 0u32..20, 0u32..72, 0u32..100),
-        // level in 1..=100
-        1u32..=100,
+        // level in 1..=1000
+        1u32..=1000,
         // base_score, base_time_ms, base_hints, base_shuffles, base_undos
         (0u32..100_000, 0u64..36_000_000, 0u32..500, 0u32..500, 0u32..500),
         // difficulty
@@ -845,25 +916,25 @@ proptest! {
 //
 // **Validates: Requirements 1.2, 1.3, 1.4**
 //
-// For any level in the range 1 to 100, the victory screen SHALL display the
-// NEXT LEVEL button if and only if level < MAX_LEVEL (i.e., level < 100).
-// At level 100, only NEW GAME and LEADERBOARD are shown (2 items).
+// For any level in the range 1 to 1000, the victory screen SHALL display the
+// NEXT LEVEL button if and only if level < MAX_LEVEL (i.e., level < 1000).
+// At level 1000, only NEW GAME and ACHIEVEMENTS are shown (2 items).
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
     #[test]
-    fn property_3_victory_menu_shows_next_level_iff_below_max(level in 1u32..=100) {
+    fn property_3_victory_menu_shows_next_level_iff_below_max(level in 1u32..=1000) {
         let item_count = victory_menu_item_count(level);
 
         if level < MAX_LEVEL {
-            // Below max level: NEXT LEVEL + NEW GAME + LEADERBOARD = 3 items
+            // Below max level: NEXT LEVEL + NEW GAME + ACHIEVEMENTS = 3 items
             prop_assert_eq!(item_count, 3,
-                "Level {}: victory menu should show 3 items (NEXT LEVEL + NEW GAME + LEADERBOARD) when below max level {}, got {}",
+                "Level {}: victory menu should show 3 items (NEXT LEVEL + NEW GAME + ACHIEVEMENTS) when below max level {}, got {}",
                 level, MAX_LEVEL, item_count);
         } else {
-            // At max level (100): NEW GAME + LEADERBOARD = 2 items (no NEXT LEVEL)
+            // At max level (1000): NEW GAME + ACHIEVEMENTS = 2 items (no NEXT LEVEL)
             prop_assert_eq!(item_count, 2,
-                "Level {}: victory menu should show 2 items (NEW GAME + LEADERBOARD) at max level {}, got {}",
+                "Level {}: victory menu should show 2 items (NEW GAME + ACHIEVEMENTS) at max level {}, got {}",
                 level, MAX_LEVEL, item_count);
         }
     }
@@ -975,11 +1046,58 @@ proptest! {
 }
 
 
-// Feature: extended-levels, Property 8: Shuffle reward awarded on endgame level completion
+// Feature: grandmaster-levels, Property 3: Generator solvability for Grandmaster Mixed boards
+//
+// For any seed that produces a successful generation, the generated 144-tile board with the
+// 200-face 4-pack Grandmaster pool SHALL be 100% solvable.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(100))]
+
+    #[test]
+    fn property_grandmaster_generator_solvability(seed in any::<u64>()) {
+        let layout = turtle_layout();
+        let face_pool = xmahjong::levels::face_pool_for_level(101);
+
+        let mut generator = BoardGenerator::new(seed);
+        let result = generator.generate_with_faces_and_solution(layout, 144, &face_pool, 10);
+
+        prop_assume!(result.is_ok());
+        let (mut board, solution) = result.unwrap();
+
+        prop_assert_eq!(board.remaining_count(), 144,
+            "Seed {}: board should have 144 tiles, got {}", seed, board.remaining_count());
+        prop_assert_eq!(solution.len(), 72,
+            "Seed {}: solution should have 72 pairs, got {}", seed, solution.len());
+
+        for (step, &(a, b)) in solution.iter().enumerate() {
+            prop_assert!(board.tiles[a].is_some(),
+                "Seed {} step {}: no tile at position {}", seed, step, a);
+            prop_assert!(board.tiles[b].is_some(),
+                "Seed {} step {}: no tile at position {}", seed, step, b);
+            prop_assert!(board.is_free(a),
+                "Seed {} step {}: tile at {} not free", seed, step, a);
+            prop_assert!(board.is_free(b),
+                "Seed {} step {}: tile at {} not free", seed, step, b);
+
+            let face_a = board.tiles[a].unwrap().face_id;
+            let face_b = board.tiles[b].unwrap().face_id;
+            prop_assert_eq!(face_a, face_b,
+                "Seed {} step {}: face mismatch {} vs {}", seed, step, face_a, face_b);
+
+            board.remove_pair(a, b);
+        }
+
+        prop_assert_eq!(board.remaining_count(), 0,
+            "Seed {}: board not empty after solution, {} tiles remain", seed, board.remaining_count());
+    }
+}
+
+
+// Feature: extended-levels, Property 8: Shuffle reward awarded on endgame/grandmaster level completion
 //
 // **Validates: Requirements 7.1, 7.2, 7.3**
 //
-// For any level in 51 to 100 and for any difficulty setting (Easy or Normal),
+// For any level in 51 to 1000 and for any difficulty setting (Easy or Normal),
 // completing the level SHALL increase `shuffles_remaining` by exactly 1.
 // This verifies the shuffle reward logic: `remaining_shuffles = shuffles_remaining + 1`.
 
@@ -996,17 +1114,15 @@ proptest! {
 
     #[test]
     fn property_8_shuffle_reward_on_endgame_level_completion(
-        level in 51u32..=100,
+        level in 51u32..=1000,
         difficulty in prop_oneof![Just(Difficulty::Easy), Just(Difficulty::Normal)],
         initial_shuffles in 0u32..=50,
     ) {
-        // Simulate completing a level in the endgame range (51-100)
+        // Simulate completing a level in the range (51-1000)
         // The shuffle reward logic in main.rs is:
         //   let remaining_shuffles = game_state.shuffles_remaining + 1;
-        // This applies to ALL levels (not just endgame) and is difficulty-independent.
+        // This applies to ALL levels and is difficulty-independent.
 
-        // Create a game state at the given endgame level with the given difficulty
-        // Use the turtle layout with an empty tile vec to represent a completed board
         let layout = turtle_layout();
         let state = GameState {
             board: xmahjong::board::Board { tiles: vec![None; layout.positions.len()], layout },
@@ -1027,26 +1143,20 @@ proptest! {
             difficulty,
         };
 
-        // Apply the shuffle reward (mirrors the logic in main.rs on level completion)
         let remaining_shuffles = compute_shuffle_reward(state.shuffles_remaining);
 
-        // Assert: the reward is exactly +1 from the starting shuffle count
         prop_assert_eq!(remaining_shuffles, initial_shuffles + 1,
             "Level {} (difficulty {:?}): shuffle reward should be initial ({}) + 1 = {}, got {}",
             level, difficulty, initial_shuffles, initial_shuffles + 1, remaining_shuffles);
 
-        // Assert: the reward is independent of the level number within endgame range
-        // (same formula applies to all levels 51-100)
         let reward_at_51 = compute_shuffle_reward(initial_shuffles);
-        let reward_at_100 = compute_shuffle_reward(initial_shuffles);
+        let reward_at_1000 = compute_shuffle_reward(initial_shuffles);
         prop_assert_eq!(remaining_shuffles, reward_at_51,
             "Shuffle reward should be the same at level {} as at level 51", level);
-        prop_assert_eq!(remaining_shuffles, reward_at_100,
-            "Shuffle reward should be the same at level {} as at level 100", level);
+        prop_assert_eq!(remaining_shuffles, reward_at_1000,
+            "Shuffle reward should be the same at level {} as at level 1000", level);
 
-        // Assert: the reward is independent of difficulty
-        // (the +1 logic does not branch on difficulty)
-        let _ = state.difficulty; // acknowledge difficulty is part of state
+        let _ = state.difficulty;
         prop_assert_eq!(remaining_shuffles, initial_shuffles + 1,
             "Shuffle reward must be +1 regardless of difficulty {:?}", difficulty);
     }

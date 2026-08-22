@@ -14,13 +14,13 @@ use sdl2::video::{Window, WindowContext};
 
 use crate::board::TilePosition;
 use crate::game_state::{Animation, GameState};
-use crate::storage::{Leaderboard, ShuffleState, TrophyState};
+use crate::storage::{Leaderboard, ShuffleState, TrophyState, UserProgress};
 
 /// Number of distinct tile face images per style.
 const TILE_FACE_COUNT: usize = 50;
 
-/// Total number of tile face textures (penguins + dogs + space).
-const TOTAL_FACE_COUNT: usize = 150;
+/// Total number of tile face textures (penguins + dogs + space + ocean).
+const TOTAL_FACE_COUNT: usize = 200;
 
 /// Default window width in pixels.
 #[cfg(target_os = "macos")]
@@ -704,6 +704,24 @@ impl Renderer {
                     textures.push(None);
                     eprintln!(
                         "[xMahjong] Warning: Space tile texture not found: '{}'. Using placeholder. ({})",
+                        path, e
+                    );
+                }
+            }
+        }
+
+        // Load ocean tiles (face IDs 150-199)
+        for i in 0..TILE_FACE_COUNT {
+            let path = format!("{}/ocean/face_{:02}.png", base, i);
+            match texture_creator.load_texture(&path) {
+                Ok(texture) => {
+                    let texture: Texture<'static> = unsafe { std::mem::transmute(texture) };
+                    textures.push(Some(texture));
+                }
+                Err(e) => {
+                    textures.push(None);
+                    eprintln!(
+                        "[xMahjong] Warning: Ocean tile texture not found: '{}'. Using placeholder. ({})",
                         path, e
                     );
                 }
@@ -1627,29 +1645,32 @@ impl Renderer {
     /// - Undo (blue)
     /// - Hint (cyan)
     /// - Shuffle (purple)
+    /// - Levels (purple/magenta)
     /// - Shortcuts (green)
-    /// - Leaderboard (blue)
-    /// - Save + Quit (orange)
+    /// - Achievements (blue)
     /// - Difficulty toggle (teal)
+    /// - About (blue)
+    /// - Switch User (purple)
+    /// - Save + Quit (orange)
     pub fn render_menu(&mut self, selected: usize, difficulty: &str) {
         self.draw_overlay_backdrop();
 
-        let dialog = self.draw_dialog_box(300, 590);
+        let dialog = self.draw_dialog_box(300, 610);
 
         // Title
         self.draw_bitmap_text(
             "PAUSED",
             dialog.x() + 100,
-            dialog.y() + 18,
+            dialog.y() + 16,
             3,
             Color::RGB(200, 220, 255),
         );
 
         let btn_w: u32 = 220;
-        let btn_h: u32 = 40;
+        let btn_h: u32 = 36;
         let btn_x = dialog.x() + ((dialog.width() - btn_w) / 2) as i32;
-        let start_y = dialog.y() + 60;
-        let spacing: i32 = 48;
+        let start_y = dialog.y() + 52;
+        let spacing: i32 = 44;
 
         let difficulty_label = format!("MODE: {}", difficulty);
 
@@ -1658,6 +1679,7 @@ impl Renderer {
             (Color::RGB(50, 100, 180), "UNDO"),
             (Color::RGB(50, 160, 170), "HINT"),
             (Color::RGB(120, 60, 160), "SHUFFLE"),
+            (Color::RGB(140, 90, 170), "LEVELS"),
             (Color::RGB(100, 140, 100), "SHORTCUTS"),
             (Color::RGB(50, 100, 180), "ACHIEVEMENTS"),
             (Color::RGB(0, 130, 130), &difficulty_label),
@@ -1684,7 +1706,7 @@ impl Renderer {
         self.draw_bitmap_text(
             "ESC RESUME  CTRL+S SAVE",
             dialog.x() + 20,
-            dialog.y() + 562,
+            dialog.y() + 580,
             1,
             Color::RGB(120, 120, 140),
         );
@@ -1757,7 +1779,7 @@ impl Renderer {
     pub fn render_victory(&mut self, time: &str, score: u32, level: u32, selected: usize) {
         self.draw_overlay_backdrop();
 
-        let dialog_h: u32 = if level < 50 { 360 } else { 300 };
+        let dialog_h: u32 = if level < 1000 { 360 } else { 300 };
         let dialog = self.draw_dialog_box(350, dialog_h);
 
         // "VICTORY!" title
@@ -1793,7 +1815,7 @@ impl Renderer {
         let btn_h: u32 = 44;
         let btn_x = dialog.x() + ((dialog.width() - btn_w) / 2) as i32;
 
-        if level < 50 {
+        if level < 1000 {
             let buttons: &[(i32, Color, &str)] = &[
                 (155, Color::RGB(120, 60, 180), "NEXT LEVEL"),
                 (215, Color::RGB(50, 140, 70), "NEW GAME"),
@@ -2250,6 +2272,213 @@ impl Renderer {
         let btn_x = dialog.x() + ((dialog.width() - btn_w) / 2) as i32;
         let btn_y = dialog.y() + dialog_h as i32 - 50;
         self.draw_labeled_button(btn_x, btn_y, btn_w, btn_h, Color::RGB(80, 80, 95), "BACK");
+    }
+
+    /// Renders the level select screen allowing the user to browse and replay any unlocked level.
+    pub fn render_level_select(&mut self, user_name: &str, progress: &UserProgress, page: usize, selected_level: u32) {
+        self.draw_overlay_backdrop();
+
+        let dialog_w: u32 = 720;
+        let dialog_h: u32 = 590;
+        let dialog = self.draw_dialog_box(dialog_w, dialog_h);
+
+        // Title (centered, scale 3)
+        let title = "LEVEL SELECT";
+        let title_w = title.len() as i32 * 6 * 3;
+        self.draw_bitmap_text(
+            title,
+            dialog.x() + (dialog.width() as i32 - title_w) / 2,
+            dialog.y() + 16,
+            3,
+            Color::RGB(255, 215, 0),
+        );
+
+        // Header info: completed count & page
+        let completed_count = progress.completed_levels.len().max(progress.max_completed_level as usize);
+        let total_pages = 40; // 1000 / 25
+        let current_page = page.min(total_pages - 1);
+        let info_text = format!("USER: {}   COMPLETED: {}/1000   PAGE {}/{}", user_name, completed_count, current_page + 1, total_pages);
+        let info_w = info_text.len() as i32 * 6 * 2;
+        self.draw_bitmap_text(
+            &info_text,
+            dialog.x() + (dialog.width() as i32 - info_w) / 2,
+            dialog.y() + 50,
+            2,
+            Color::RGB(150, 220, 255),
+        );
+
+        // Phase Quick Jump Tabs
+        let tabs: &[(&str, usize)] = &[
+            ("PENGUIN", 0),
+            ("DOG", 0),
+            ("SPACE", 0),
+            ("ENDGAME", 2),
+            ("GRANDMASTER", 4),
+        ];
+        let tab_w: u32 = 124;
+        let tab_h: u32 = 28;
+        let tab_gap: i32 = 8;
+        let tabs_total_w = (tab_w as i32 * tabs.len() as i32) + (tab_gap * (tabs.len() as i32 - 1));
+        let tab_start_x = dialog.x() + (dialog.width() as i32 - tabs_total_w) / 2;
+        let tab_y = dialog.y() + 78;
+
+        for (i, (tab_label, target_page)) in tabs.iter().enumerate() {
+            let tx = tab_start_x + i as i32 * (tab_w as i32 + tab_gap);
+            let is_active_phase = current_page == *target_page;
+            let tab_color = if is_active_phase {
+                Color::RGB(60, 130, 180)
+            } else {
+                Color::RGB(40, 50, 70)
+            };
+            self.draw_labeled_button(tx, tab_y, tab_w, tab_h, tab_color, tab_label);
+        }
+
+        // 5x5 Grid of Levels (25 per page)
+        let grid_cols = 5;
+        let grid_rows = 5;
+        let cell_w: u32 = 116;
+        let cell_h: u32 = 54;
+        let cell_gap_x: i32 = 12;
+        let cell_gap_y: i32 = 10;
+        let grid_total_w = (cell_w as i32 * grid_cols) + (cell_gap_x * (grid_cols - 1));
+        let grid_start_x = dialog.x() + (dialog.width() as i32 - grid_total_w) / 2;
+        let grid_start_y = dialog.y() + 116;
+
+        let page_start_level = (current_page * 25 + 1) as u32;
+
+        for row in 0..grid_rows {
+            for col in 0..grid_cols {
+                let idx = row * grid_cols + col;
+                let level = page_start_level + idx as u32;
+                if level > 1000 {
+                    continue;
+                }
+
+                let cx = grid_start_x + col * (cell_w as i32 + cell_gap_x);
+                let cy = grid_start_y + row * (cell_h as i32 + cell_gap_y);
+
+                let is_completed = progress.is_level_completed(level);
+                let is_unlocked = progress.is_level_unlocked(level);
+                let is_selected = level == selected_level;
+
+                let cell_rect = Rect::new(cx, cy, cell_w, cell_h);
+
+                // Background and text colors
+                let (bg_color, border_color, text_color, status_color, status_text) = if is_completed {
+                    (
+                        Color::RGB(25, 70, 55),
+                        Color::RGB(50, 150, 100),
+                        Color::RGB(255, 255, 255),
+                        Color::RGB(100, 240, 140),
+                        "CLEARED",
+                    )
+                } else if is_unlocked {
+                    (
+                        Color::RGB(30, 60, 110),
+                        Color::RGB(70, 130, 220),
+                        Color::RGB(200, 230, 255),
+                        Color::RGB(100, 200, 255),
+                        "PLAY",
+                    )
+                } else {
+                    (
+                        Color::RGB(28, 30, 38),
+                        Color::RGB(50, 55, 68),
+                        Color::RGB(100, 105, 120),
+                        Color::RGB(80, 85, 95),
+                        "LOCKED",
+                    )
+                };
+
+                // Draw cell background
+                self.canvas.set_draw_color(bg_color);
+                self.canvas.fill_rect(cell_rect).ok();
+                self.canvas.set_draw_color(border_color);
+                self.canvas.draw_rect(cell_rect).ok();
+
+                // Draw level number
+                let lvl_str = format!("LVL {}", level);
+                let lvl_w = lvl_str.len() as i32 * 6 * 2;
+                self.draw_bitmap_text(
+                    &lvl_str,
+                    cx + (cell_w as i32 - lvl_w) / 2,
+                    cy + 8,
+                    2,
+                    text_color,
+                );
+
+                // Draw status text (scale 1)
+                let st_w = status_text.len() as i32 * 6;
+                self.draw_bitmap_text(
+                    status_text,
+                    cx + (cell_w as i32 - st_w) / 2,
+                    cy + 34,
+                    1,
+                    status_color,
+                );
+
+                // Highlight border if selected
+                if is_selected {
+                    let sel_outer = Rect::new(cx - 2, cy - 2, cell_w + 4, cell_h + 4);
+                    self.canvas.set_draw_color(Color::RGB(255, 255, 255));
+                    self.canvas.draw_rect(sel_outer).ok();
+                    let sel_inner = Rect::new(cx - 1, cy - 1, cell_w + 2, cell_h + 2);
+                    self.canvas.draw_rect(sel_inner).ok();
+                }
+            }
+        }
+
+        // Bottom Navigation Bar
+        let nav_y = dialog.y() + 444;
+        let nav_btn_w: u32 = 130;
+        let nav_btn_h: u32 = 38;
+
+        // < PREV button
+        let prev_x = grid_start_x;
+        let prev_color = if current_page > 0 {
+            Color::RGB(50, 100, 160)
+        } else {
+            Color::RGB(40, 45, 55)
+        };
+        self.draw_labeled_button(prev_x, nav_y, nav_btn_w, nav_btn_h, prev_color, "< PREV");
+
+        // Page indicator in middle
+        let page_str = format!("PAGE {} OF {}", current_page + 1, total_pages);
+        let page_w = page_str.len() as i32 * 6 * 2;
+        self.draw_bitmap_text(
+            &page_str,
+            dialog.x() + (dialog.width() as i32 - page_w) / 2,
+            nav_y + 10,
+            2,
+            Color::RGB(200, 220, 240),
+        );
+
+        // NEXT > button
+        let next_x = grid_start_x + grid_total_w - nav_btn_w as i32;
+        let next_color = if current_page + 1 < total_pages {
+            Color::RGB(50, 100, 160)
+        } else {
+            Color::RGB(40, 45, 55)
+        };
+        self.draw_labeled_button(next_x, nav_y, nav_btn_w, nav_btn_h, next_color, "NEXT >");
+
+        // BACK button
+        let back_w: u32 = 160;
+        let back_h: u32 = 40;
+        let back_x = dialog.x() + (dialog.width() as i32 - back_w as i32) / 2;
+        let back_y = dialog.y() + 494;
+        self.draw_labeled_button(back_x, back_y, back_w, back_h, Color::RGB(100, 100, 100), "BACK");
+
+        // Footer hint
+        let hint = "ARROWS NAVIGATE  ENTER PLAY  PGUP/DN PAGE  ESC BACK";
+        let hint_w = hint.len() as i32 * 6;
+        self.draw_bitmap_text(
+            hint,
+            dialog.x() + (dialog.width() as i32 - hint_w) / 2,
+            dialog.y() + 550,
+            1,
+            Color::RGB(130, 130, 150),
+        );
     }
 
     /// Renders a beautiful daily play streak achievement popup.

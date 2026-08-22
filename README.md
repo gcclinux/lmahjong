@@ -14,6 +14,9 @@ Example
 
 ### Features
 
+- 1000 Levels across 5 phases (Penguin, Dog, Space, Endgame, and Grandmaster Mixed)
+- Level Select screen to browse, choose, and replay any completed or unlocked level
+- 4 rich tile theme packs: Tux Penguins, Puppies, Space, and Ocean (200 unique tile face graphics)
 - Classic Turtle layout with 144 tiles across 5 layers
 - Guaranteed solvable boards via reverse-deal generation
 - Hint system, undo (up to 10 moves), and progressive shuffle system
@@ -138,7 +141,7 @@ Shuffles rearrange the remaining tiles on the board when no moves are available 
 - **Starting shuffles:** Each new game begins with 1 shuffle
 - **Level completion bonus:** +1 shuffle awarded for each level completed (carried across levels)
 - **Daily bonus:** +1 shuffle granted once per day when the game is launched
-- **Total potential:** By completing all 50 levels, a player accumulates up to 51 shuffles (1 starting + 50 level rewards), plus any daily bonuses earned
+- **Total potential:** Accumulate shuffles across levels (1 starting + 1 per completed level), plus daily bonuses earned
 - **Wait for Shuffle:** If you run out of shuffles and moves mid-run, you can choose "Wait for Shuffle" instead of starting over. This saves your game and exits. The next day when you launch the game, the daily bonus gives you a new shuffle so you can continue where you left off.
 
 Shuffle state persists across sessions via `shuffles.json` in the data storage directory.
@@ -155,6 +158,15 @@ The game offers two difficulty levels that affect how shuffles behave:
 Difficulty can be changed at any time from the pause menu (ESC → navigate to "DIFFICULTY" → press Enter or click). Mid-game you can pause, switch from EASY to NORMAL (or vice versa), resume, and keep playing. The shuffle behavior changes immediately — if you switch to NORMAL and use a shuffle on the current level, it will already be the random (non-guaranteed) shuffle. When you advance to the next level, the game uses whichever difficulty you last set.
 
 Difficulty is saved with the game state and displayed on the leaderboard.
+
+## Level Select & Replaying Levels
+
+You can replay any level you have already completed (or currently unlocked):
+1. Press **Escape** or click the **MENU** button in-game to open the Pause Menu.
+2. Select **LEVELS** (using arrows + Enter, or mouse click).
+3. Browse the 1000-level catalog with phase jump tabs (**PENGUIN**, **DOG**, **SPACE**, **ENDGAME**, **GRANDMASTER**) or page through using `< PREV` / `NEXT >` (or `PgUp` / `PgDn`).
+4. Select any completed or unlocked level to start playing immediately. Completed levels are saved to `progress.json` per user profile.
+
 
 ## Packaging (.deb, .rpm, AppImage)
 
@@ -245,6 +257,7 @@ Entering a different username at game startup creates and manages a separate set
 | `leaderboard.json` | Top 10 scores with player name, score, time, hints used, shuffles used, undos used, and date |
 | `settings.json` | Persistent settings (muted state) |
 | `savegame.json` | In-progress game state for resuming later (deleted after loading) |
+| `progress.json` | Persistent level completion and unlocked level tracking |
 | `shuffles.json` | Shuffle state: tracks last daily bonus date for the +1 daily shuffle reward |
 | `trophies.json` | Persistent trophy achievement progress |
 

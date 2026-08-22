@@ -80,6 +80,8 @@ pub enum GameStatus {
     Leaderboard,
     /// Shortcuts popup is displayed.
     Shortcuts,
+    /// Level selection screen is displayed.
+    LevelSelect,
 }
 
 /// Tracks score-relevant statistics for the current game.

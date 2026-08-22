@@ -1,44 +1,63 @@
 # Level Design
 
-xMahjong has 100 levels split into four phases: **Penguin Phase** (1-10), **Dog Phase** (11-20), **Space Phase** (21-50), and **Endgame Phase** (51-100).
+xMahjong features **1000 levels** split into five distinct progression phases: **Penguin Phase** (1–10), **Dog Phase** (11–20), **Space Phase** (21–50), **Endgame Phase** (51–100), and the ultimate **Grandmaster Mixed Phase** (101–1000).
 
-## Penguin Phase (Levels 1-10)
+---
 
-Levels 1-10 use only penguin tile faces (face IDs 0-49). Tile count increases each level.
+## Theme Packs & Asset Overview
 
-| Level | Tiles | Pairs | Faces Used | Theme |
-|-------|-------|-------|------------|-------|
-| 1 | 36 | 18 | 9 | Penguins only |
-| 2 | 48 | 24 | 12 | Penguins only |
-| 3 | 60 | 30 | 15 | Penguins only |
-| 4 | 72 | 36 | 18 | Penguins only |
-| 5 | 84 | 42 | 21 | Penguins only |
-| 6 | 96 | 48 | 24 | Penguins only |
-| 7 | 108 | 54 | 27 | Penguins only |
-| 8 | 120 | 60 | 30 | Penguins only |
-| 9 | 132 | 66 | 33 | Penguins only |
-| 10 | 144 | 72 | 36 | Penguins only (full board) |
+The game includes **200 unique tile face graphics** divided across 4 distinct theme packs:
 
-## Dog Phase (Levels 11-20)
+| Theme | Asset Directory | Face ID Range | Unique Faces | Description |
+|-------|-----------------|---------------|--------------|-------------|
+| **Penguins** | `assets/tiles/` | `0 – 49` | 50 | Classic Tux Penguin faces and characters |
+| **Dogs** | `assets/dogs/` | `50 – 99` | 50 | 5 distinct puppy and dog breed styles |
+| **Space** | `assets/space/` | `100 – 149` | 50 | Cosmic sci-fi, aliens, rockets, and galaxies |
+| **Ocean** | `assets/ocean/` | `150 – 199` | 50 | Vibrant marine life, sea creatures, corals, and ocean wonders |
 
-Levels 11-20 repeat the same tile count progression but mix in dog tile faces from `assets/dogs/`. Each level introduces one additional dog style (10 face variants per style) until 5 styles are active.
+---
 
-| Level | Tiles | Pairs | Dog Styles | Face Pool Size | Theme |
+## 1. Penguin Phase (Levels 1–10)
+
+Levels 1–10 introduce the core game mechanics using only Penguin tile faces from `assets/tiles/` (IDs 0–49). The board starts small and expands by 12 tiles (3 pairs / 6 faces) each level.
+
+| Level | Tiles | Pairs | Faces Used | Face Pool Size | Theme |
 |-------|-------|-------|------------|----------------|-------|
-| 11 | 36 | 18 | 1 (faces 50-59) | 60 | Penguins + Dogs |
-| 12 | 48 | 24 | 2 (faces 50-69) | 70 | Penguins + Dogs |
-| 13 | 60 | 30 | 3 (faces 50-79) | 80 | Penguins + Dogs |
-| 14 | 72 | 36 | 4 (faces 50-89) | 90 | Penguins + Dogs |
-| 15 | 84 | 42 | 5 (faces 50-99) | 100 | Penguins + Dogs |
-| 16 | 96 | 48 | 5 (faces 50-99) | 100 | Penguins + Dogs |
-| 17 | 108 | 54 | 5 (faces 50-99) | 100 | Penguins + Dogs |
-| 18 | 120 | 60 | 5 (faces 50-99) | 100 | Penguins + Dogs |
-| 19 | 132 | 66 | 5 (faces 50-99) | 100 | Penguins + Dogs |
-| 20 | 144 | 72 | 5 (faces 50-99) | 100 | Penguins + Dogs (full board) |
+| 1 | 36 | 18 | 9 | 50 | Penguins only (`assets/tiles/`) |
+| 2 | 48 | 24 | 12 | 50 | Penguins only (`assets/tiles/`) |
+| 3 | 60 | 30 | 15 | 50 | Penguins only (`assets/tiles/`) |
+| 4 | 72 | 36 | 18 | 50 | Penguins only (`assets/tiles/`) |
+| 5 | 84 | 42 | 21 | 50 | Penguins only (`assets/tiles/`) |
+| 6 | 96 | 48 | 24 | 50 | Penguins only (`assets/tiles/`) |
+| 7 | 108 | 54 | 27 | 50 | Penguins only (`assets/tiles/`) |
+| 8 | 120 | 60 | 30 | 50 | Penguins only (`assets/tiles/`) |
+| 9 | 132 | 66 | 33 | 50 | Penguins only (`assets/tiles/`) |
+| 10 | 144 | 72 | 36 | 50 | Penguins only (Full Board) |
 
-## Space Phase (Levels 21-50)
+---
 
-Levels 21-50 mix tiles from all three themes: penguin (face IDs 0-49), dog (face IDs 50-99), and space (face IDs 100-149). The face pool grows linearly from 100 at level 21 to 200 at level 50, and the tile count cycles through the same 36-to-144 progression every 10 levels.
+## 2. Dog Phase (Levels 11–20)
+
+Levels 11–20 repeat the 36-to-144 tile count ramp, mixing in Dog tile faces from `assets/dogs/` (IDs 50–99). Each level introduces one new dog style (10 faces per style) until all 5 styles are active.
+
+| Level | Tiles | Pairs | Dog Styles Active | Face Pool Size | Theme |
+|-------|-------|-------|-------------------|----------------|-------|
+| 11 | 36 | 18 | 1 (IDs 50–59) | 60 | Penguins + Dogs |
+| 12 | 48 | 24 | 2 (IDs 50–69) | 70 | Penguins + Dogs |
+| 13 | 60 | 30 | 3 (IDs 50–79) | 80 | Penguins + Dogs |
+| 14 | 72 | 36 | 4 (IDs 50–89) | 90 | Penguins + Dogs |
+| 15 | 84 | 42 | 5 (IDs 50–99) | 100 | Penguins + Dogs |
+| 16 | 96 | 48 | 5 (IDs 50–99) | 100 | Penguins + Dogs |
+| 17 | 108 | 54 | 5 (IDs 50–99) | 100 | Penguins + Dogs |
+| 18 | 120 | 60 | 5 (IDs 50–99) | 100 | Penguins + Dogs |
+| 19 | 132 | 66 | 5 (IDs 50–99) | 100 | Penguins + Dogs |
+| 20 | 144 | 72 | 5 (IDs 50–99) | 100 | Penguins + Dogs (Full Board) |
+
+---
+
+## 3. Space Phase (Levels 21–50)
+
+Levels 21–50 combine tiles from Penguins (IDs 0–49), Dogs (IDs 50–99), and Space (IDs 100–149, `assets/space/`). The face pool grows linearly from 100 to 200 using the formula `100 + ((level - 21) * 100) / 29`, distributed evenly across the three packs.
 
 | Level | Tiles | Pairs | Face Pool Size | Penguin | Dog | Space | Theme |
 |-------|-------|-------|----------------|---------|-----|-------|-------|
@@ -51,94 +70,98 @@ Levels 21-50 mix tiles from all three themes: penguin (face IDs 0-49), dog (face
 | 27 | 108 | 54 | 120 | 40 | 40 | 40 | Penguins + Dogs + Space |
 | 28 | 120 | 60 | 124 | 41 | 41 | 42 | Penguins + Dogs + Space |
 | 29 | 132 | 66 | 127 | 42 | 42 | 43 | Penguins + Dogs + Space |
-| 30 | 144 | 72 | 131 | 43 | 43 | 45 | Penguins + Dogs + Space (full board) |
-| 31 | 36 | 18 | 134 | 44 | 44 | 46 | Penguins + Dogs + Space |
-| 32 | 48 | 24 | 137 | 45 | 45 | 47 | Penguins + Dogs + Space |
-| 33 | 60 | 30 | 141 | 47 | 47 | 47 | Penguins + Dogs + Space |
-| 34 | 72 | 36 | 144 | 48 | 48 | 48 | Penguins + Dogs + Space |
-| 35 | 84 | 42 | 148 | 49 | 49 | 50 | Penguins + Dogs + Space |
-| 36 | 96 | 48 | 151 | 50 | 50 | 51 | Penguins + Dogs + Space |
-| 37 | 108 | 54 | 155 | 51 | 51 | 53 | Penguins + Dogs + Space |
-| 38 | 120 | 60 | 158 | 52 | 52 | 54 | Penguins + Dogs + Space |
-| 39 | 132 | 66 | 162 | 54 | 54 | 54 | Penguins + Dogs + Space |
-| 40 | 144 | 72 | 165 | 55 | 55 | 55 | Penguins + Dogs + Space (full board) |
-| 41 | 36 | 18 | 168 | 56 | 56 | 56 | Penguins + Dogs + Space |
-| 42 | 48 | 24 | 172 | 57 | 57 | 58 | Penguins + Dogs + Space |
-| 43 | 60 | 30 | 175 | 58 | 58 | 59 | Penguins + Dogs + Space |
-| 44 | 72 | 36 | 179 | 59 | 59 | 61 | Penguins + Dogs + Space |
-| 45 | 84 | 42 | 182 | 60 | 60 | 62 | Penguins + Dogs + Space |
-| 46 | 96 | 48 | 186 | 62 | 62 | 62 | Penguins + Dogs + Space |
-| 47 | 108 | 54 | 189 | 63 | 63 | 63 | Penguins + Dogs + Space |
-| 48 | 120 | 60 | 193 | 64 | 64 | 65 | Penguins + Dogs + Space |
-| 49 | 132 | 66 | 196 | 65 | 65 | 66 | Penguins + Dogs + Space |
-| 50 | 144 | 72 | 200 | 66 | 66 | 68 | Penguins + Dogs + Space (full board) |
+| 30 | 144 | 72 | 131 | 43 | 43 | 45 | Penguins + Dogs + Space (Full Board) |
+| 31–40 | 36–144 | 18–72 | 134–165 | 44–55 | 44–55 | 46–55 | Penguins + Dogs + Space |
+| 41–50 | 36–144 | 18–72 | 168–200 | 56–66 | 56–66 | 56–68 | Penguins + Dogs + Space (Full Board at 50) |
 
-The face pool size grows linearly using the formula `pool_size = 100 + ((level - 21) * 100) / 29` (integer division), interpolating from 100 face IDs at level 21 to 200 at level 50. The pool is distributed as evenly as possible across the three tile sets: `floor(pool_size / 3)` IDs go to penguins, `floor(pool_size / 3)` to dogs, and the remainder to space. Face IDs are selected contiguously from the start of each set's range (penguin from 0, dog from 50, space from 100). The tile count follows the same 10-level cycle as earlier phases (36, 48, 60, 72, 84, 96, 108, 120, 132, 144), repeating three times across levels 21-30, 31-40, and 41-50. Face IDs wrap modulo 50 within each tile set, so levels with per-set counts above 50 will see repeated tile faces in the pool.
+---
 
-## Endgame Phase (Levels 51-100)
+## 4. Endgame Phase (Levels 51–100)
 
-Levels 51-100 use fixed maximum parameters identical to level 50: 144 tiles, 72 pairs, and a 200-entry face pool drawn from all three themes (penguins, dogs, space). Each level generates a unique random board layout via clock-derived seeds, providing unlimited replayability at maximum difficulty.
+Levels 51–100 maintain fixed maximum parameters: 144 tiles, 72 pairs, and a 200-entry face pool drawn from Penguins (66 entries), Dogs (66 entries), and Space (68 entries). Each board uses a clock-derived seed for limitless procedural variation.
 
 | Parameter | Value |
 |-----------|-------|
-| Tiles | 144 |
+| Level Range | 51–100 |
+| Tiles | 144 (Full Turtle Board) |
 | Pairs | 72 |
+| Faces Used per Board | 36 |
 | Face Pool Size | 200 |
-| Penguin entries | 66 (IDs 0-49, with 0-15 repeated) |
-| Dog entries | 66 (IDs 50-99, with 50-65 repeated) |
-| Space entries | 68 (IDs 100-149, with 100-117 repeated) |
-| Theme | Penguins + Dogs + Space (full board) |
+| Themes | Penguins (`assets/tiles/`) + Dogs (`assets/dogs/`) + Space (`assets/space/`) |
 
-Since all parameters are fixed, the variety across levels 51-100 comes entirely from the random tile placement. The generator uses a clock-derived seed at the moment of board generation, ensuring every play session produces a different arrangement even though the tile count and face pool remain constant.
+---
 
-## How It Works
+## 5. Grandmaster Mixed Phase (Levels 101–1000)
 
-- **Tile count** must always be a multiple of 4 (each face ID needs exactly 4 tiles to form 2 matchable pairs).
-- **Faces Used** = Tiles / 4 (the number of distinct face images on the board).
-- **Face Pool** is the set of face IDs the generator randomly picks from. A larger pool means more visual variety.
-- The generator uses the full 144-position turtle layout for all levels. For levels with fewer tiles, it removes positions from the outside in before placing tiles, keeping the board compact and playable.
+Levels 101 through 1000 represent the **Grandmaster Mixed Phase**. This mode harnesses all **4 complete theme packs**—**Penguins**, **Dogs**, **Space**, and the new **Ocean** pack (`assets/ocean/`)—into a full, perfectly balanced **25% distribution** across the entire 200-entry pool.
 
-## Progression
+### Face Pool Composition (Levels 101–1000)
 
-- Completing a level shows a "NEXT LEVEL" button on the victory screen (up to level 99).
-- "NEW GAME" always resets to level 1.
-- At level 100 (max), only "NEW GAME" and "LEADERBOARD" buttons are shown.
-- The current level is displayed on the HUD between Score and Shuffle.
-- Level is persisted in save files so quitting mid-game resumes at the correct level.
+```
+Total Pool: 200 Face Entries
+┌───────────────────────────┬───────────────────────────┐
+│ Penguin Pack (IDs 0–49)   │ Dog Pack (IDs 50–99)      │
+│ 50 Entries (25.0%)        │ 50 Entries (25.0%)        │
+│ assets/tiles/             │ assets/dogs/              │
+├───────────────────────────┼───────────────────────────┤
+│ Space Pack (IDs 100–149)  │ Ocean Pack (IDs 150–199)  │
+│ 50 Entries (25.0%)        │ 50 Entries (25.0%)        │
+│ assets/space/             │ assets/ocean/             │
+└───────────────────────────┴───────────────────────────┘
+```
 
-## Difficulty
+### Grandmaster Phase Milestones & Ranges (Levels 101–1000)
 
-The game has two difficulty settings that control shuffle behavior:
+| Level Milestone Range | Tiles | Pairs | Active Asset Packs | Difficulty & Experience |
+|-----------------------|-------|-------|--------------------|-------------------------|
+| **101 – 200** (Grandmaster Novice) | 144 | 72 | Penguins, Dogs, Space, Ocean | Introduction to full 4-pack visual diversity; 36 faces chosen from 200 pool including `assets/ocean/` |
+| **201 – 400** (Grandmaster Adept) | 144 | 72 | Penguins, Dogs, Space, Ocean | Complex multi-layer tile discrimination across marine, celestial, canine, and penguin art |
+| **401 – 600** (Grandmaster Expert) | 144 | 72 | Penguins, Dogs, Space, Ocean | High-speed pattern recognition under clock-derived procedural layouts |
+| **601 – 800** (Grandmaster Master) | 144 | 72 | Penguins, Dogs, Space, Ocean | Strategic depth and long-range planning on 5-layer turtle layouts |
+| **801 – 1000** (Supreme Grandmaster) | 144 | 72 | Penguins, Dogs, Space, Ocean | The ultimate Mahjong Solitaire endurance test culminating at Level 1000 |
 
-| Difficulty | Shuffle Behavior |
-|------------|-----------------|
-| **Easy** | Shuffles guarantee a playable board. Smart placement ensures free tiles always have valid matching pairs. You will never get stuck due to a bad shuffle. |
-| **Normal** | Shuffles randomly redistribute tiles without guaranteeing solvability. You may run out of valid moves and need to reshuffle again. |
+### Parameters for Levels 101–1000
 
-### How It Works
+| Parameter | Value |
+|-----------|-------|
+| Level Range | 101 – 1000 (900 levels) |
+| Board Layout | Classic Turtle (144 tiles, 5 layers) |
+| Pairs per Board | 72 |
+| Distinct Faces per Board | 36 unique faces (4 tiles per face) |
+| Face Pool Size | 200 |
+| **Penguin Pack entries** | 50 (IDs `0–49`, exactly 25.0%) |
+| **Dog Pack entries** | 50 (IDs `50–99`, exactly 25.0%) |
+| **Space Pack entries** | 50 (IDs `100–149`, exactly 25.0%) |
+| **Ocean Pack entries** | 50 (IDs `150–199`, exactly 25.0%) |
+| Tile Textures Used | `assets/tiles/`, `assets/dogs/`, `assets/space/`, `assets/ocean/` |
 
-- **Easy mode** retries the shuffle up to 50 times looking for a valid arrangement. If random attempts fail, it uses a smart placement algorithm that explicitly assigns matching face IDs to free tile positions, guaranteeing at least 5 valid pairs (or all remaining pairs if fewer than 10 tiles are left).
-- **Normal mode** performs a single random shuffle of all face IDs across occupied positions. No validation or retry logic is applied. The result may or may not have valid moves available.
+---
 
-### Switching Difficulty
+## How Generation Works
 
-Difficulty can be toggled at any time from the pause menu (ESC → "DIFFICULTY: EASY/NORMAL" → Enter or click). Mid-game you can pause, switch from EASY to NORMAL (or vice versa), resume, and keep playing. The shuffle behavior changes immediately — if you switch to NORMAL and use a shuffle on the current level, it will already be the random (non-guaranteed) shuffle. When you advance to the next level, the game uses whichever difficulty you last set.
+- **Tile Count Rule**: Tile count is always a multiple of 4 (each chosen face ID appears exactly 4 times on the board, forming 2 matchable pairs).
+- **Face Selection**: For each board, the reverse-deal algorithm randomly draws 36 distinct face IDs from the level's face pool and places them in reverse-deal order to ensure 100% solvability.
+- **Compact Layouts (Levels 1–9, 11–19, 21–29, 31–39, 41–49)**: For levels with fewer than 144 tiles, outer positions are removed from the outside in before placing tiles, keeping the board compact and playable.
 
-### Persistence
+---
 
-- Difficulty is stored in save files (`savegame.json`) so quitting mid-game preserves your setting.
-- Difficulty is recorded on leaderboard entries so scores show whether they were achieved on EASY or NORMAL.
-- Old save files and leaderboard entries without a difficulty field default to EASY for backwards compatibility.
+## Progression & Level Select
 
-### Solvability vs. Getting Stuck
+- **Next Level**: Clearing a board presents a "NEXT LEVEL" button on the victory screen for levels 1 through 999.
+- **Victory at Level 1000**: Level 1000 is the final maximum level, displaying completion awards.
+- **Level Select Screen**: Accessible from the Pause Menu (<kbd>ESC</kbd> → **LEVELS**). Allows browsing and instant replay of any completed or unlocked level across all 1000 levels.
+  - Quick jump tabs: **PENGUIN (1–10)**, **DOG (11–20)**, **SPACE (21–50)**, **ENDGAME (51–100)**, **GRANDMASTER (101+)**.
+  - Paginated 5×5 grid with 25 levels per page (40 pages total).
+  - Persistence: Progress is saved to `progress.json` per user profile.
 
-An important distinction: **every generated board is always solvable**, regardless of difficulty. The reverse-deal algorithm guarantees that at least one complete solution path exists from start to finish.
+---
 
-However, that does not mean the player will never get stuck. Mahjong solitaire is a game of strategy — the player freely chooses which pairs to remove, and some choices can block other pairs deeper in the layout. Even on a perfectly solvable board, removing pairs in the wrong order can lead to a dead end where no valid moves remain.
+## Difficulty Modes
 
-This is where the difficulty setting matters:
+| Difficulty | Shuffle Behavior | Solvability |
+|------------|------------------|-------------|
+| **Easy** (default) | Guaranteed valid arrangement. Smart placement algorithm ensures at least 5 playable pairs after every shuffle. | Always playable after shuffle |
+| **Normal** | Pure random redistribution of remaining face IDs across occupied positions without retry guarantees. | May require additional shuffles if blocked |
 
-- On **Easy**, when you get stuck and use a shuffle, the game guarantees the reshuffled tiles will have valid pairs available so you can keep playing. But it does not guarantee the entire board is solvable from that reshuffled state — you may get stuck again later.
-- On **Normal**, the shuffle is purely random. It might give you playable pairs, or it might leave you stuck again immediately, requiring another shuffle.
-
-In both modes, getting stuck is a natural part of the game. Shuffles are the safety net — Easy makes each shuffle reliable, while Normal makes each shuffle a gamble. The skill in Mahjong solitaire lies in reading the board and choosing removal order carefully to avoid dead ends in the first place.
+- Difficulty can be toggled mid-game from the Pause Menu (<kbd>ESC</kbd> → **MODE: EASY/NORMAL**).
+- Setting is saved to `savegame.json` and recorded in leaderboard entries.

@@ -48,6 +48,28 @@ pub fn storage_dir_for_user(user_name: &str) -> PathBuf {
     base_storage_dir().join(safe_name)
 }
 
+/// Returns the resolved storage directory for a user, checking for existing case-insensitive directories.
+pub fn resolve_user_dir(user_name: &str) -> PathBuf {
+    let exact = storage_dir_for_user(user_name);
+    if exact.exists() {
+        return exact;
+    }
+    let base = base_storage_dir();
+    if let Ok(entries) = fs::read_dir(&base) {
+        let lower = user_name.to_lowercase();
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.to_lowercase() == lower {
+                        return entry.path();
+                    }
+                }
+            }
+        }
+    }
+    exact
+}
+
 /// Platform-appropriate storage directory fallback.
 fn dirs_fallback() -> PathBuf {
     if cfg!(target_os = "macos") {
@@ -143,7 +165,7 @@ impl Leaderboard {
     /// Loads the leaderboard from disk for a specific user.
     /// Returns a default (empty) leaderboard on any read or parse error.
     pub fn load(user_name: &str) -> Self {
-        let path = storage_dir_for_user(user_name).join("leaderboard.json");
+        let path = resolve_user_dir(user_name).join("leaderboard.json");
         match fs::read_to_string(&path) {
             Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
             Err(_) => Self::default(),
@@ -231,7 +253,7 @@ impl TrophyState {
     /// Loads the trophy state from disk for a specific user.
     /// Returns default state on any read or parse error.
     pub fn load(user_name: &str) -> Self {
-        let path = storage_dir_for_user(user_name).join("trophies.json");
+        let path = resolve_user_dir(user_name).join("trophies.json");
         match fs::read_to_string(&path) {
             Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
             Err(_) => Self::default(),
@@ -337,10 +359,9 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Loads settings from disk for a specific user.
-    /// Returns default settings on any read or parse error.
+    /// Loads user settings from disk. Returns default settings on any read/parse error.
     pub fn load(user_name: &str) -> Self {
-        let path = storage_dir_for_user(user_name).join("settings.json");
+        let path = resolve_user_dir(user_name).join("settings.json");
         match fs::read_to_string(&path) {
             Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
             Err(_) => Self::default(),
@@ -396,10 +417,10 @@ impl Default for ShuffleState {
 }
 
 impl ShuffleState {
-    /// Loads the shuffle state from disk for a specific user.
-    /// Returns default state (no bonus date) on any read or parse error.
+    /// Loads shuffle state from disk for a specific user.
+    /// Returns default state (1 shuffle) if no file exists or if it's corrupt.
     pub fn load(user_name: &str) -> Self {
-        let path = storage_dir_for_user(user_name).join("shuffles.json");
+        let path = resolve_user_dir(user_name).join("shuffles.json");
         match fs::read_to_string(&path) {
             Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
             Err(_) => Self::default(),
@@ -497,13 +518,13 @@ fn default_difficulty_str() -> String {
 
 impl SavedGame {
     /// Loads a saved game from disk for a specific user. Returns None if no save exists, is corrupt,
-    /// or contains a level outside the valid range (1-100).
+    /// or contains a level outside the valid range (1-1000).
     pub fn load(user_name: &str) -> Option<Self> {
-        let path = storage_dir_for_user(user_name).join("savegame.json");
+        let path = resolve_user_dir(user_name).join("savegame.json");
         match fs::read_to_string(&path) {
             Ok(contents) => {
                 let saved: Option<Self> = serde_json::from_str(&contents).ok();
-                saved.filter(|s| (1..=100).contains(&s.level))
+                saved.filter(|s| (1..=1000).contains(&s.level))
             }
             Err(_) => None,
         }
@@ -533,12 +554,190 @@ impl SavedGame {
     pub fn delete(user_name: &str) {
         let path = storage_dir_for_user(user_name).join("savegame.json");
         let _ = fs::remove_file(&path);
+        let resolved = resolve_user_dir(user_name).join("savegame.json");
+        if resolved != path {
+            let _ = fs::remove_file(&resolved);
+        }
     }
 
     /// Returns true if a saved game file exists on disk for a specific user.
     pub fn exists(user_name: &str) -> bool {
-        let path = storage_dir_for_user(user_name).join("savegame.json");
-        path.exists()
+        resolve_user_dir(user_name).join("savegame.json").exists()
+    }
+}
+
+/// Persistent level completion progress tracking for a user.
+///
+/// Stored as `progress.json` in the user's storage directory.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UserProgress {
+    /// Highest level completed by the user (0 if none completed yet).
+    #[serde(default)]
+    pub max_completed_level: u32,
+    /// Specific completed level numbers.
+    #[serde(default)]
+    pub completed_levels: Vec<u32>,
+}
+
+impl Default for UserProgress {
+    fn default() -> Self {
+        Self {
+            max_completed_level: 0,
+            completed_levels: Vec::new(),
+        }
+    }
+}
+
+impl UserProgress {
+    /// Loads the user's level progress from disk.
+    /// Includes backwards compatibility checks with savegame.json and existing user directories.
+    pub fn load(user_name: &str) -> Self {
+        let dir = resolve_user_dir(user_name);
+        let path = dir.join("progress.json");
+        let mut progress: Self = match fs::read_to_string(&path) {
+            Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+            Err(_) => Self::default(),
+        };
+
+        // Backwards compatibility check: if max_completed_level is 0, check savegame.json
+        if progress.max_completed_level == 0 {
+            if let Some(save) = SavedGame::load(user_name) {
+                if save.level > 1 {
+                    progress.max_completed_level = save.level - 1;
+                    progress.completed_levels = (1..save.level).collect();
+                }
+            }
+        }
+
+        // Also check if any case-insensitive directory match has progress or saved games
+        if progress.max_completed_level == 0 {
+            let base = base_storage_dir();
+            if let Ok(entries) = fs::read_dir(&base) {
+                let lower = user_name.to_lowercase();
+                for entry in entries.flatten() {
+                    if entry.path().is_dir() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if name.to_lowercase() == lower {
+                                let other_progress_path = entry.path().join("progress.json");
+                                if let Ok(c) = fs::read_to_string(&other_progress_path) {
+                                    if let Ok(p) = serde_json::from_str::<UserProgress>(&c) {
+                                        if p.max_completed_level > progress.max_completed_level {
+                                            progress = p;
+                                        }
+                                    }
+                                }
+                                let other_save_path = entry.path().join("savegame.json");
+                                if let Ok(c) = fs::read_to_string(&other_save_path) {
+                                    if let Ok(save) = serde_json::from_str::<SavedGame>(&c) {
+                                        if save.level > 1 && save.level - 1 > progress.max_completed_level {
+                                            progress.max_completed_level = save.level - 1;
+                                            progress.completed_levels = (1..save.level).collect();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if progress.max_completed_level > 0 && progress.completed_levels.is_empty() {
+            progress.completed_levels = (1..=progress.max_completed_level).collect();
+        }
+
+        progress
+    }
+
+    /// Loads user progress and synchronizes with current game level in memory.
+    /// If current_game_level is greater than 1 (e.g. level 13), marks levels 1..current_game_level (1..12) as completed.
+    pub fn load_and_sync(user_name: &str, current_game_level: u32) -> Self {
+        let mut progress = Self::load(user_name);
+        let mut changed = false;
+
+        if current_game_level > 1 {
+            let completed_up_to = (current_game_level - 1).min(1000);
+            if completed_up_to > progress.max_completed_level {
+                progress.max_completed_level = completed_up_to;
+                changed = true;
+            }
+            for lvl in 1..=completed_up_to {
+                if !progress.completed_levels.contains(&lvl) {
+                    progress.completed_levels.push(lvl);
+                    changed = true;
+                }
+            }
+        }
+
+        if progress.max_completed_level > 0 {
+            for lvl in 1..=progress.max_completed_level {
+                if !progress.completed_levels.contains(&lvl) {
+                    progress.completed_levels.push(lvl);
+                    changed = true;
+                }
+            }
+        }
+
+        if changed {
+            progress.completed_levels.sort_unstable();
+            progress.completed_levels.dedup();
+            progress.save(user_name);
+        }
+
+        progress
+    }
+
+    /// Saves the user's level progress to disk.
+    pub fn save(&self, user_name: &str) {
+        let dir = storage_dir_for_user(user_name);
+        if let Err(e) = fs::create_dir_all(&dir) {
+            eprintln!("xmahjong: failed to create storage directory {:?}: {}", dir, e);
+            return;
+        }
+        let path = dir.join("progress.json");
+        match serde_json::to_string_pretty(self) {
+            Ok(json) => {
+                if let Err(e) = fs::write(&path, json) {
+                    eprintln!("xmahjong: failed to write progress to {:?}: {}", path, e);
+                }
+            }
+            Err(e) => {
+                eprintln!("xmahjong: failed to serialize progress: {}", e);
+            }
+        }
+    }
+
+    /// Marks a level as completed and updates max_completed_level.
+    /// Returns true if progress was updated.
+    pub fn mark_completed(&mut self, level: u32) -> bool {
+        let mut changed = false;
+        if !self.completed_levels.contains(&level) {
+            self.completed_levels.push(level);
+            self.completed_levels.sort_unstable();
+            changed = true;
+        }
+        if level > self.max_completed_level {
+            self.max_completed_level = level;
+            changed = true;
+        }
+        changed
+    }
+
+    /// Checks whether a given level is unlocked / available to play.
+    /// Level 1 is always unlocked. Any completed level or the next playable level is unlocked.
+    pub fn is_level_unlocked(&self, level: u32) -> bool {
+        if level == 1 {
+            return true;
+        }
+        if level <= self.max_completed_level + 1 && level <= 1000 {
+            return true;
+        }
+        self.completed_levels.contains(&level)
+    }
+
+    /// Checks whether a given level is completed.
+    pub fn is_level_completed(&self, level: u32) -> bool {
+        self.completed_levels.contains(&level) || (self.max_completed_level > 0 && level <= self.max_completed_level)
     }
 }
 
@@ -633,4 +832,25 @@ mod tests {
         let dir = storage_dir_for_user("Alice");
         assert!(dir.ends_with("Alice"));
     }
+
+    #[test]
+    fn test_user_progress_load_and_sync() {
+        let test_user = "test_sync_user_123";
+        let progress = UserProgress::load_and_sync(test_user, 13);
+        assert_eq!(progress.max_completed_level, 12);
+        assert_eq!(progress.completed_levels.len(), 12);
+        for lvl in 1..=12 {
+            assert!(progress.is_level_completed(lvl));
+            assert!(progress.is_level_unlocked(lvl));
+        }
+        assert!(progress.is_level_unlocked(13));
+        assert!(!progress.is_level_completed(13));
+        assert!(!progress.is_level_unlocked(14));
+
+        // Clean up test file
+        let path = storage_dir_for_user(test_user).join("progress.json");
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir(storage_dir_for_user(test_user));
+    }
 }
+
