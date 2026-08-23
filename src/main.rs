@@ -371,76 +371,157 @@ fn main() {
                             }
                             continue;
                         }
+                        sdl2::event::Event::MouseButtonDown { x, y, mouse_btn, .. }
+                            if *mouse_btn == sdl2::mouse::MouseButton::Left =>
+                        {
+                            let (win_w, win_h) = renderer.window_size();
+                            if entry.profiles.is_empty() {
+                                let dialog_w: i32 = 420;
+                                let dialog_h: i32 = 300;
+                                let dialog_x = (win_w as i32 - dialog_w) / 2;
+                                let dialog_y = (win_h as i32 - dialog_h) / 2;
+
+                                let input_x = dialog_x + 40;
+                                let input_y = dialog_y + 130;
+                                let input_w: i32 = 340;
+                                let input_h: i32 = 40;
+
+                                if *x >= input_x && *x < input_x + input_w && *y >= input_y && *y < input_y + input_h {
+                                    entry.select_new_player();
+                                }
+                            } else {
+                                let dialog_w: i32 = 480;
+                                let dialog_h: i32 = 500;
+                                let dialog_x = (win_w as i32 - dialog_w) / 2;
+                                let dialog_y = (win_h as i32 - dialog_h) / 2;
+
+                                // Check Prev/Next pagination buttons
+                                if entry.total_pages() > 1 {
+                                    let prev_x = dialog_x + 270;
+                                    let next_x = dialog_x + 408;
+                                    let btn_y = dialog_y + 68;
+                                    let btn_w = 42;
+                                    let btn_h = 18;
+
+                                    if *x >= prev_x && *x < prev_x + btn_w && *y >= btn_y && *y < btn_y + btn_h {
+                                        entry.prev_page();
+                                        continue;
+                                    }
+                                    if *x >= next_x && *x < next_x + btn_w && *y >= btn_y && *y < btn_y + btn_h {
+                                        entry.next_page();
+                                        continue;
+                                    }
+                                }
+
+                                // Check Profile Cards
+                                let start_idx = entry.page_start_index();
+                                let end_idx = entry.page_end_index();
+                                let card_w: i32 = 420;
+                                let card_h: i32 = 54;
+                                let card_x = dialog_x + 30;
+                                let start_y = dialog_y + 92;
+                                let card_spacing = 62i32;
+
+                                let mut clicked_profile_name: Option<String> = None;
+                                for (i, p_idx) in (start_idx..end_idx).enumerate() {
+                                    let cy = start_y + (i as i32) * card_spacing;
+                                    if *x >= card_x && *x < card_x + card_w && *y >= cy && *y < cy + card_h {
+                                        clicked_profile_name = Some(entry.profiles[p_idx].name.clone());
+                                        break;
+                                    }
+                                }
+
+                                if let Some(target_name) = clicked_profile_name {
+                                    game_state = start_player_session(
+                                        &target_name,
+                                        dev_mode.enabled,
+                                        &mut audio,
+                                        &mut settings,
+                                        &mut current_user_name,
+                                        &mut daily_streak_achievement,
+                                    );
+                                    name_entry = None;
+                                    continue;
+                                }
+
+                                // Check New Player Input Box
+                                let input_x = dialog_x + 30;
+                                let input_y = dialog_y + 320;
+                                let input_w: i32 = 310;
+                                let input_h: i32 = 38;
+                                if *x >= input_x && *x < input_x + input_w && *y >= input_y && *y < input_y + input_h {
+                                    entry.select_new_player();
+                                    continue;
+                                }
+
+                                // Check Start Button
+                                let btn_x = dialog_x + 350;
+                                let btn_y = dialog_y + 320;
+                                let btn_w: i32 = 100;
+                                let btn_h: i32 = 38;
+                                if *x >= btn_x && *x < btn_x + btn_w && *y >= btn_y && *y < btn_y + btn_h {
+                                    if entry.is_valid() {
+                                        let target_name = entry.text.trim().to_string();
+                                        game_state = start_player_session(
+                                            &target_name,
+                                            dev_mode.enabled,
+                                            &mut audio,
+                                            &mut settings,
+                                            &mut current_user_name,
+                                            &mut daily_streak_achievement,
+                                        );
+                                        name_entry = None;
+                                    }
+                                    continue;
+                                }
+                            }
+                            continue;
+                        }
                         sdl2::event::Event::KeyDown {
                             keycode: Some(keycode),
                             ..
                         } => {
                             match *keycode {
+                                sdl2::keyboard::Keycode::Up => {
+                                    entry.select_prev();
+                                    continue;
+                                }
+                                sdl2::keyboard::Keycode::Down => {
+                                    entry.select_next();
+                                    continue;
+                                }
+                                sdl2::keyboard::Keycode::Left => {
+                                    entry.prev_page();
+                                    continue;
+                                }
+                                sdl2::keyboard::Keycode::Right => {
+                                    entry.next_page();
+                                    continue;
+                                }
+                                sdl2::keyboard::Keycode::Tab => {
+                                    entry.toggle_field();
+                                    continue;
+                                }
                                 sdl2::keyboard::Keycode::Return
                                 | sdl2::keyboard::Keycode::KpEnter => {
-                                    // Submit the username if valid
-                                    if entry.is_valid() {
-                                        current_user_name = entry.text.trim().to_string();
+                                    let target_name = if !entry.is_new_player_selected() {
+                                        entry.selected_profile().map(|p| p.name.clone())
+                                    } else if entry.is_valid() {
+                                        Some(entry.text.trim().to_string())
+                                    } else {
+                                        None
+                                    };
 
-                                        // Load settings for this user
-                                        settings = Settings::load(&current_user_name);
-                                        audio.set_mute(settings.muted);
-
-                                        // Load saved game if exists, or create new game
-                                        game_state = if !dev_mode.enabled && SavedGame::exists(&current_user_name) {
-                                            match load_saved_game(&current_user_name) {
-                                                Some(state) => {
-                                                    SavedGame::delete(&current_user_name);
-                                                    state
-                                                }
-                                                None => create_new_game_state(),
-                                            }
-                                        } else {
-                                            create_new_game_state()
-                                        };
-
-                                        // Synchronize user progress with current game level
-                                        if !dev_mode.enabled {
-                                            UserProgress::load_and_sync(&current_user_name, game_state.level);
-                                        }
-
-                                        // Load shuffle state and apply daily bonus for user
-                                        let mut shuffle_state = ShuffleState::load(&current_user_name);
-                                        let today = current_date_string();
-                                        let today_days = {
-                                            use std::time::SystemTime;
-                                            let now = SystemTime::now()
-                                                .duration_since(SystemTime::UNIX_EPOCH)
-                                                .unwrap_or_default()
-                                                .as_secs();
-                                            now / 86400
-                                        };
-                                        let daily_bonus = shuffle_state.claim_daily_bonus(&today);
-                                        if daily_bonus {
-                                            game_state.shuffles_remaining += 1;
-                                            if !dev_mode.enabled {
-                                                let last_days = shuffle_state.last_launch_epoch_days;
-                                                if last_days == 0 {
-                                                    shuffle_state.consecutive_days = 1;
-                                                    daily_streak_achievement = Some(1);
-                                                } else if last_days == today_days - 1 {
-                                                    shuffle_state.consecutive_days += 1;
-                                                    daily_streak_achievement = Some(shuffle_state.consecutive_days);
-                                                } else {
-                                                    shuffle_state.consecutive_days = 1;
-                                                    daily_streak_achievement = Some(1);
-                                                }
-                                                shuffle_state.best_streak = shuffle_state.best_streak.max(shuffle_state.consecutive_days);
-                                                shuffle_state.last_launch_epoch_days = today_days;
-                                            }
-                                        }
-                                        if !dev_mode.enabled {
-                                            shuffle_state.save(&current_user_name);
-                                        }
-
+                                    if let Some(name) = target_name {
+                                        game_state = start_player_session(
+                                            &name,
+                                            dev_mode.enabled,
+                                            &mut audio,
+                                            &mut settings,
+                                            &mut current_user_name,
+                                            &mut daily_streak_achievement,
+                                        );
                                         name_entry = None;
-                                        game_state.timer.start();
-                                        game_state.status = GameStatus::Playing;
                                     }
                                     continue;
                                 }
@@ -1751,7 +1832,7 @@ fn main() {
             GameStatus::NameEntry => {
                 renderer.render_board(&game_state, layout_rect);
                 if let Some(ref entry) = name_entry {
-                    renderer.render_name_entry(&entry.text, entry.score, entry.time_seconds);
+                    renderer.render_name_entry(entry);
                 }
             }
             GameStatus::Leaderboard => {
@@ -2099,6 +2180,79 @@ fn save_current_game(state: &GameState, user_name: &str) {
     };
 
     saved.save(user_name);
+}
+
+/// Initializes and starts a user session for the given username.
+/// Loads saved settings, saved game (if existing) or new game, syncs progress, and awards daily bonus.
+fn start_player_session(
+    user_name: &str,
+    dev_mode_enabled: bool,
+    audio: &mut AudioManager,
+    settings: &mut Settings,
+    current_user_name: &mut String,
+    daily_streak_achievement: &mut Option<u32>,
+) -> GameState {
+    *current_user_name = user_name.trim().to_string();
+
+    // Load settings for this user
+    *settings = Settings::load(current_user_name);
+    audio.set_mute(settings.muted);
+
+    // Load saved game if exists, or create new game
+    let mut game_state = if !dev_mode_enabled && SavedGame::exists(current_user_name) {
+        match load_saved_game(current_user_name) {
+            Some(state) => {
+                SavedGame::delete(current_user_name);
+                state
+            }
+            None => create_new_game_state(),
+        }
+    } else {
+        create_new_game_state()
+    };
+
+    // Synchronize user progress with current game level
+    if !dev_mode_enabled {
+        UserProgress::load_and_sync(current_user_name, game_state.level);
+    }
+
+    // Load shuffle state and apply daily bonus for user
+    let mut shuffle_state = ShuffleState::load(current_user_name);
+    let today = current_date_string();
+    let today_days = {
+        use std::time::SystemTime;
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        now / 86400
+    };
+    let daily_bonus = shuffle_state.claim_daily_bonus(&today);
+    if daily_bonus {
+        game_state.shuffles_remaining += 1;
+        if !dev_mode_enabled {
+            let last_days = shuffle_state.last_launch_epoch_days;
+            if last_days == 0 {
+                shuffle_state.consecutive_days = 1;
+                *daily_streak_achievement = Some(1);
+            } else if last_days == today_days - 1 {
+                shuffle_state.consecutive_days += 1;
+                *daily_streak_achievement = Some(shuffle_state.consecutive_days);
+            } else {
+                shuffle_state.consecutive_days = 1;
+                *daily_streak_achievement = Some(1);
+            }
+            shuffle_state.best_streak = shuffle_state.best_streak.max(shuffle_state.consecutive_days);
+            shuffle_state.last_launch_epoch_days = today_days;
+        }
+    }
+    if !dev_mode_enabled {
+        shuffle_state.save(current_user_name);
+    }
+
+    game_state.timer.start();
+    game_state.status = GameStatus::Playing;
+    game_state
 }
 
 /// Loads a saved game from disk for a specific user and reconstructs the GameState.

@@ -753,6 +753,198 @@ impl UserProgress {
     }
 }
 
+/// Summary profile for an existing player discovered in local storage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserProfile {
+    /// Canonical display name of the player.
+    pub name: String,
+    /// Whether an in-progress saved game exists.
+    pub has_save: bool,
+    /// Level number of the saved game (if any, default 1).
+    pub save_level: u32,
+    /// Highest level completed by the player (0 if none completed yet).
+    pub max_completed_level: u32,
+    /// Consecutive launch day streak.
+    pub streak: u32,
+    /// Best recorded leaderboard score.
+    pub best_score: u32,
+    /// Last played or modified time in epoch seconds (for sorting most recent first).
+    pub last_played_epoch_secs: u64,
+}
+
+/// Scans local storage for all existing player profiles.
+/// Returns a list of player profiles sorted by most recently active first.
+pub fn list_user_profiles() -> Vec<UserProfile> {
+    let base = base_storage_dir();
+    let entries = match fs::read_dir(&base) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+
+    use std::collections::HashMap;
+    let mut profile_map: HashMap<String, UserProfile> = HashMap::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let file_name = match entry.file_name().into_string() {
+            Ok(name) => name,
+            Err(_) => continue,
+        };
+
+        // Filter out hidden directories, empty, or scratch
+        if file_name.is_empty() || file_name.starts_with('.') || file_name == "scratch" {
+            continue;
+        }
+
+        // Determine the latest modification time among the directory and its JSON files
+        let mut latest_mtime: u64 = fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        // Check savegame.json
+        let save_path = path.join("savegame.json");
+        let (has_save, save_level) = if save_path.exists() {
+            if let Ok(m) = fs::metadata(&save_path).and_then(|m| m.modified()) {
+                if let Ok(d) = m.duration_since(std::time::UNIX_EPOCH) {
+                    latest_mtime = latest_mtime.max(d.as_secs());
+                }
+            }
+            if let Ok(c) = fs::read_to_string(&save_path) {
+                if let Ok(s) = serde_json::from_str::<SavedGame>(&c) {
+                    (true, s.level)
+                } else {
+                    (false, 1)
+                }
+            } else {
+                (false, 1)
+            }
+        } else {
+            (false, 1)
+        };
+
+        // Check progress.json
+        let progress_path = path.join("progress.json");
+        let max_completed_level = if progress_path.exists() {
+            if let Ok(m) = fs::metadata(&progress_path).and_then(|m| m.modified()) {
+                if let Ok(d) = m.duration_since(std::time::UNIX_EPOCH) {
+                    latest_mtime = latest_mtime.max(d.as_secs());
+                }
+            }
+            if let Ok(c) = fs::read_to_string(&progress_path) {
+                if let Ok(p) = serde_json::from_str::<UserProgress>(&c) {
+                    p.max_completed_level
+                } else {
+                    0
+                }
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        // Check shuffles.json (for streak)
+        let shuffles_path = path.join("shuffles.json");
+        let streak = if shuffles_path.exists() {
+            if let Ok(m) = fs::metadata(&shuffles_path).and_then(|m| m.modified()) {
+                if let Ok(d) = m.duration_since(std::time::UNIX_EPOCH) {
+                    latest_mtime = latest_mtime.max(d.as_secs());
+                }
+            }
+            if let Ok(c) = fs::read_to_string(&shuffles_path) {
+                if let Ok(s) = serde_json::from_str::<ShuffleState>(&c) {
+                    s.best_streak.max(s.consecutive_days)
+                } else {
+                    0
+                }
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        // Check leaderboard.json (for best score)
+        let lb_path = path.join("leaderboard.json");
+        let best_score = if lb_path.exists() {
+            if let Ok(m) = fs::metadata(&lb_path).and_then(|m| m.modified()) {
+                if let Ok(d) = m.duration_since(std::time::UNIX_EPOCH) {
+                    latest_mtime = latest_mtime.max(d.as_secs());
+                }
+            }
+            if let Ok(c) = fs::read_to_string(&lb_path) {
+                if let Ok(lb) = serde_json::from_str::<Leaderboard>(&c) {
+                    lb.entries.iter().map(|e| e.score).max().unwrap_or(0)
+                } else {
+                    0
+                }
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        // Also check trophies.json and settings.json timestamps
+        for aux_file in &["trophies.json", "settings.json"] {
+            let aux_path = path.join(aux_file);
+            if let Ok(m) = fs::metadata(&aux_path).and_then(|m| m.modified()) {
+                if let Ok(d) = m.duration_since(std::time::UNIX_EPOCH) {
+                    latest_mtime = latest_mtime.max(d.as_secs());
+                }
+            }
+        }
+
+        let key = file_name.to_lowercase();
+        let profile = UserProfile {
+            name: file_name,
+            has_save,
+            save_level,
+            max_completed_level,
+            streak,
+            best_score,
+            last_played_epoch_secs: latest_mtime,
+        };
+
+        match profile_map.get_mut(&key) {
+            Some(existing) => {
+                // Merge info if this dir is more recent or has better stats
+                if profile.last_played_epoch_secs > existing.last_played_epoch_secs {
+                    existing.name = profile.name;
+                    existing.last_played_epoch_secs = profile.last_played_epoch_secs;
+                }
+                if profile.has_save {
+                    existing.has_save = true;
+                    existing.save_level = profile.save_level.max(existing.save_level);
+                }
+                existing.max_completed_level = existing.max_completed_level.max(profile.max_completed_level);
+                existing.streak = existing.streak.max(profile.streak);
+                existing.best_score = existing.best_score.max(profile.best_score);
+            }
+            None => {
+                profile_map.insert(key, profile);
+            }
+        }
+    }
+
+    let mut profiles: Vec<UserProfile> = profile_map.into_values().collect();
+    // Sort descending by last played time, then alphabetically by name
+    profiles.sort_by(|a, b| {
+        b.last_played_epoch_secs
+            .cmp(&a.last_played_epoch_secs)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    profiles
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -863,6 +1055,27 @@ mod tests {
         let path = storage_dir_for_user(test_user).join("progress.json");
         let _ = fs::remove_file(&path);
         let _ = fs::remove_dir(storage_dir_for_user(test_user));
+    }
+
+    #[test]
+    fn test_list_user_profiles() {
+        let test_user = "test_profile_user_abc";
+        let dir = storage_dir_for_user(test_user);
+        let _ = fs::create_dir_all(&dir);
+
+        let mut progress = UserProgress::default();
+        progress.mark_completed(5);
+        progress.save(test_user);
+
+        let profiles = list_user_profiles();
+        let found = profiles.iter().find(|p| p.name.to_lowercase() == test_user.to_lowercase());
+        assert!(found.is_some());
+        let p = found.unwrap();
+        assert_eq!(p.max_completed_level, 5);
+
+        // Clean up
+        let _ = fs::remove_file(dir.join("progress.json"));
+        let _ = fs::remove_dir(&dir);
     }
 }
 

@@ -13,7 +13,7 @@ use sdl2::ttf::Sdl2TtfContext;
 use sdl2::video::{Window, WindowContext};
 
 use crate::board::TilePosition;
-use crate::game_state::{Animation, GameState};
+use crate::game_state::{Animation, GameState, NameEntryState};
 use crate::storage::{Leaderboard, ShuffleState, TrophyState, UserProgress};
 
 /// Number of distinct tile face images per style.
@@ -2851,35 +2851,25 @@ impl Renderer {
     /// - Instructions (Enter to submit, Esc to cancel)
     ///
     /// # Arguments
-    /// * `name` - The current text in the name buffer
-    /// * `score` - The qualifying score
-    /// * `time_seconds` - The game completion time in seconds
-    pub fn render_name_entry(&mut self, name: &str, score: u32, time_seconds: u32) {
+    /// Renders the player selection and name entry dialog.
+    ///
+    /// If existing profiles exist:
+    /// - Displays the list of saved player profiles with level/save/streak badges
+    /// - Displays pagination buttons if more than PROFILES_PER_PAGE profiles exist
+    /// - Displays a text input field and Start button to create a new player
+    /// - Highlights the currently selected profile or input field
+    ///
+    /// If no profiles exist:
+    /// - Displays a clean initial username entry dialog
+    pub fn render_name_entry(&mut self, state: &NameEntryState) {
         self.draw_overlay_backdrop();
 
-        let dialog = self.draw_dialog_box(400, 280);
+        let is_startup = state.score == 0 && state.time_seconds == 0;
 
-        let is_startup = score == 0 && time_seconds == 0;
+        if !is_startup {
+            // High score screen (for games completed that qualified for leaderboard)
+            let dialog = self.draw_dialog_box(400, 280);
 
-        if is_startup {
-            // Startup Username Entry
-            self.draw_bitmap_text(
-                "WELCOME TO XMAHJONG",
-                dialog.x() + 45,
-                dialog.y() + 24,
-                3,
-                Color::RGB(255, 215, 0),
-            );
-
-            self.draw_bitmap_text(
-                "ENTER USERNAME",
-                dialog.x() + 90,
-                dialog.y() + 75,
-                2,
-                Color::RGB(200, 200, 220),
-            );
-        } else {
-            // "HIGH SCORE!" title (gold, large)
             self.draw_bitmap_text(
                 "HIGH SCORE!",
                 dialog.x() + 112,
@@ -2888,8 +2878,7 @@ impl Renderer {
                 Color::RGB(255, 215, 0),
             );
 
-            // Score display
-            let score_text = format!("SCORE  {}", score);
+            let score_text = format!("SCORE  {}", state.score);
             self.draw_bitmap_text(
                 &score_text,
                 dialog.x() + 130,
@@ -2898,9 +2887,8 @@ impl Renderer {
                 Color::RGB(255, 200, 50),
             );
 
-            // Time display
-            let minutes = time_seconds / 60;
-            let seconds = time_seconds % 60;
+            let minutes = state.time_seconds / 60;
+            let seconds = state.time_seconds % 60;
             let time_text = format!("TIME  {:02}:{:02}", minutes, seconds);
             self.draw_bitmap_text(
                 &time_text,
@@ -2910,7 +2898,6 @@ impl Renderer {
                 Color::RGB(100, 200, 100),
             );
 
-            // "ENTER YOUR NAME" label
             self.draw_bitmap_text(
                 "ENTER YOUR NAME",
                 dialog.x() + 40,
@@ -2918,73 +2905,413 @@ impl Renderer {
                 2,
                 Color::RGB(200, 200, 220),
             );
+
+            let input_x = dialog.x() + 40;
+            let input_y = dialog.y() + 148;
+            let input_w: u32 = 320;
+            let input_h: u32 = 36;
+            let input_rect = Rect::new(input_x, input_y, input_w, input_h);
+
+            self.canvas.set_draw_color(Color::RGB(25, 25, 35));
+            self.canvas.fill_rect(input_rect).ok();
+            self.canvas.set_draw_color(Color::RGB(100, 160, 220));
+            self.canvas.draw_rect(input_rect).ok();
+
+            if !state.text.is_empty() {
+                let display_name: String = state.text.to_uppercase();
+                self.draw_bitmap_text(
+                    &display_name,
+                    input_x + 6,
+                    input_y + 10,
+                    2,
+                    Color::RGB(220, 220, 240),
+                );
+            }
+
+            let char_width = 12i32;
+            let cursor_x = input_x + 6 + (state.text.chars().count() as i32 * char_width).min((input_w as i32) - 14);
+            let cursor_rect = Rect::new(cursor_x, input_y + 8, 2, input_h - 16);
+            self.canvas.set_draw_color(Color::RGB(200, 220, 255));
+            self.canvas.fill_rect(cursor_rect).ok();
+
+            self.draw_bitmap_text(
+                "ENTER TO SUBMIT  ESC TO SKIP",
+                dialog.x() + 52,
+                dialog.y() + 198,
+                1,
+                Color::RGB(140, 140, 160),
+            );
+
+            let char_count = state.text.chars().count();
+            let count_text = format!("{}/20", char_count);
+            let count_color = if char_count == 0 {
+                Color::RGB(200, 80, 80)
+            } else {
+                Color::RGB(100, 200, 100)
+            };
+            self.draw_bitmap_text(
+                &count_text,
+                dialog.x() + 320,
+                dialog.y() + 248,
+                1,
+                count_color,
+            );
+            return;
         }
 
-        // Text input field background
-        let input_x = dialog.x() + 40;
-        let input_y = dialog.y() + 148;
-        let input_w: u32 = 320;
-        let input_h: u32 = 36;
-        let input_rect = Rect::new(input_x, input_y, input_w, input_h);
+        // --- Startup / Switch User Dialog ---
+        if state.profiles.is_empty() {
+            // Case A: No existing saved profiles
+            let dialog = self.draw_dialog_box(420, 300);
 
-        // Input field background (dark)
-        self.canvas.set_draw_color(Color::RGB(25, 25, 35));
-        self.canvas.fill_rect(input_rect).ok();
-
-        // Input field border (lighter when focused)
-        self.canvas.set_draw_color(Color::RGB(100, 160, 220));
-        self.canvas.draw_rect(input_rect).ok();
-
-        // Render the typed name as bitmap text inside the input field
-        if !name.is_empty() {
-            // Convert to uppercase for bitmap font consistency
-            let display_name: String = name.to_uppercase();
+            // Title
+            let title = "WELCOME TO XMAHJONG";
+            let title_w = title.len() as i32 * 6 * 3;
             self.draw_bitmap_text(
-                &display_name,
-                input_x + 6,
-                input_y + 10,
+                title,
+                dialog.x() + (dialog.width() as i32 - title_w) / 2,
+                dialog.y() + 24,
+                3,
+                Color::RGB(255, 215, 0),
+            );
+
+            let sub = "ENTER USERNAME TO START";
+            let sub_w = sub.len() as i32 * 6 * 2;
+            self.draw_bitmap_text(
+                sub,
+                dialog.x() + (dialog.width() as i32 - sub_w) / 2,
+                dialog.y() + 75,
                 2,
-                Color::RGB(220, 220, 240),
+                Color::RGB(200, 200, 220),
+            );
+
+            let input_x = dialog.x() + 40;
+            let input_y = dialog.y() + 130;
+            let input_w: u32 = 340;
+            let input_h: u32 = 40;
+            let input_rect = Rect::new(input_x, input_y, input_w, input_h);
+
+            self.canvas.set_draw_color(Color::RGB(25, 25, 35));
+            self.canvas.fill_rect(input_rect).ok();
+            self.canvas.set_draw_color(Color::RGB(100, 160, 220));
+            self.canvas.draw_rect(input_rect).ok();
+
+            if !state.text.is_empty() {
+                let display_name: String = state.text.to_uppercase();
+                self.draw_bitmap_text(
+                    &display_name,
+                    input_x + 8,
+                    input_y + 12,
+                    2,
+                    Color::RGB(220, 220, 240),
+                );
+            }
+
+            let char_width = 12i32;
+            let cursor_x = input_x + 8 + (state.text.chars().count() as i32 * char_width).min((input_w as i32) - 14);
+            let cursor_rect = Rect::new(cursor_x, input_y + 8, 2, input_h - 16);
+            self.canvas.set_draw_color(Color::RGB(200, 220, 255));
+            self.canvas.fill_rect(cursor_rect).ok();
+
+            let instructions = "PRESS ENTER TO START GAME";
+            let instr_w = instructions.len() as i32 * 6;
+            self.draw_bitmap_text(
+                instructions,
+                dialog.x() + (dialog.width() as i32 - instr_w) / 2,
+                dialog.y() + 195,
+                1,
+                Color::RGB(140, 140, 160),
+            );
+
+            let char_count = state.text.chars().count();
+            let count_text = format!("{}/20", char_count);
+            let count_color = if char_count == 0 {
+                Color::RGB(200, 80, 80)
+            } else {
+                Color::RGB(100, 200, 100)
+            };
+            self.draw_bitmap_text(
+                &count_text,
+                dialog.x() + 340,
+                dialog.y() + 250,
+                1,
+                count_color,
+            );
+        } else {
+            // Case B: Existing profiles exist
+            let dialog_w: u32 = 480;
+            let dialog_h: u32 = 500;
+            let dialog = self.draw_dialog_box(dialog_w, dialog_h);
+
+            // Title (centered, scale 3)
+            let title = "WELCOME TO XMAHJONG";
+            let title_w = title.len() as i32 * 6 * 3;
+            self.draw_bitmap_text(
+                title,
+                dialog.x() + (dialog.width() as i32 - title_w) / 2,
+                dialog.y() + 16,
+                3,
+                Color::RGB(255, 215, 0),
+            );
+
+            // Subtitle
+            let subtitle = "SELECT PLAYER PROFILE OR CREATE NEW";
+            let sub_w = subtitle.len() as i32 * 6;
+            self.draw_bitmap_text(
+                subtitle,
+                dialog.x() + (dialog.width() as i32 - sub_w) / 2,
+                dialog.y() + 48,
+                1,
+                Color::RGB(160, 200, 230),
+            );
+
+            // Section 1 Header: Existing Players
+            let section1 = "SAVED PLAYERS";
+            self.draw_bitmap_text(
+                section1,
+                dialog.x() + 30,
+                dialog.y() + 72,
+                1,
+                Color::RGB(255, 215, 0),
+            );
+
+            // Pagination info (if more than 1 page)
+            let total_pages = state.total_pages();
+            if total_pages > 1 {
+                let page_info = format!("PAGE {}/{}", state.page + 1, total_pages);
+                self.draw_bitmap_text(
+                    &page_info,
+                    dialog.x() + 320,
+                    dialog.y() + 72,
+                    1,
+                    Color::RGB(180, 190, 210),
+                );
+
+                // Prev/Next buttons
+                let prev_color = if state.page > 0 { Color::RGB(50, 90, 140) } else { Color::RGB(35, 45, 60) };
+                let next_color = if state.page + 1 < total_pages { Color::RGB(50, 90, 140) } else { Color::RGB(35, 45, 60) };
+                self.draw_labeled_button(dialog.x() + 270, dialog.y() + 68, 42, 18, prev_color, "<");
+                self.draw_labeled_button(dialog.x() + 408, dialog.y() + 68, 42, 18, next_color, ">");
+            }
+
+            // Cards for profiles on current page
+            let start_idx = state.page_start_index();
+            let end_idx = state.page_end_index();
+            let card_w: u32 = 420;
+            let card_h: u32 = 54;
+            let card_x = dialog.x() + 30;
+            let start_y = dialog.y() + 92;
+            let card_spacing = 62i32;
+
+            for (i, p_idx) in (start_idx..end_idx).enumerate() {
+                let profile = &state.profiles[p_idx];
+                let is_selected = p_idx == state.selected_index;
+                let cy = start_y + (i as i32) * card_spacing;
+                let card_rect = Rect::new(card_x, cy, card_w, card_h);
+
+                // Card background and border
+                let (bg_color, border_color) = if is_selected {
+                    (Color::RGB(35, 65, 105), Color::RGB(100, 200, 255))
+                } else {
+                    (Color::RGB(25, 30, 42), Color::RGB(55, 65, 85))
+                };
+
+                self.canvas.set_draw_color(bg_color);
+                self.canvas.fill_rect(card_rect).ok();
+                self.canvas.set_draw_color(border_color);
+                self.canvas.draw_rect(card_rect).ok();
+
+                if is_selected {
+                    // Double border for high visibility
+                    let inner_rect = Rect::new(card_x + 1, cy + 1, card_w - 2, card_h - 2);
+                    self.canvas.set_draw_color(Color::RGB(255, 255, 255));
+                    self.canvas.draw_rect(inner_rect).ok();
+
+                    // Selection arrow ">"
+                    self.draw_bitmap_text(">", card_x + 8, cy + 18, 2, Color::RGB(255, 215, 0));
+                }
+
+                // Profile Name (uppercase, scale 2)
+                let name_display = profile.name.to_uppercase();
+                let name_x = card_x + 26;
+                let name_color = if is_selected { Color::RGB(255, 255, 255) } else { Color::RGB(210, 220, 235) };
+                self.draw_bitmap_text(&name_display, name_x, cy + 14, 2, name_color);
+
+                // Badges on the right
+                let mut badge_right_x = card_x + card_w as i32 - 12;
+
+                // Streak badge if > 1
+                if profile.streak > 1 {
+                    let streak_str = format!("STRK:{}", profile.streak);
+                    let s_w = streak_str.len() as i32 * 6;
+                    badge_right_x -= s_w + 10;
+                    self.draw_bitmap_text(&streak_str, badge_right_x, cy + 34, 1, Color::RGB(255, 180, 50));
+                }
+
+                // Save or Progress Badge
+                if profile.has_save {
+                    let badge_text = format!("RESUME LVL {}", profile.save_level);
+                    let b_w = badge_text.len() as i32 * 6;
+                    let b_rect_w = (b_w + 12) as u32;
+                    let b_x = card_x + card_w as i32 - b_rect_w as i32 - 12;
+                    let b_rect = Rect::new(b_x, cy + 10, b_rect_w, 20);
+
+                    self.canvas.set_draw_color(Color::RGB(30, 90, 55));
+                    self.canvas.fill_rect(b_rect).ok();
+                    self.canvas.set_draw_color(Color::RGB(60, 180, 110));
+                    self.canvas.draw_rect(b_rect).ok();
+                    self.draw_bitmap_text(&badge_text, b_x + 6, cy + 14, 1, Color::RGB(160, 255, 190));
+                } else if profile.max_completed_level > 0 {
+                    let badge_text = format!("LVL {}/1000", profile.max_completed_level);
+                    let b_w = badge_text.len() as i32 * 6;
+                    let b_rect_w = (b_w + 12) as u32;
+                    let b_x = card_x + card_w as i32 - b_rect_w as i32 - 12;
+                    let b_rect = Rect::new(b_x, cy + 10, b_rect_w, 20);
+
+                    self.canvas.set_draw_color(Color::RGB(30, 55, 95));
+                    self.canvas.fill_rect(b_rect).ok();
+                    self.canvas.set_draw_color(Color::RGB(65, 120, 200));
+                    self.canvas.draw_rect(b_rect).ok();
+                    self.draw_bitmap_text(&badge_text, b_x + 6, cy + 14, 1, Color::RGB(160, 210, 255));
+                } else {
+                    let badge_text = "NEW";
+                    let b_w = badge_text.len() as i32 * 6;
+                    let b_rect_w = (b_w + 12) as u32;
+                    let b_x = card_x + card_w as i32 - b_rect_w as i32 - 12;
+                    let b_rect = Rect::new(b_x, cy + 10, b_rect_w, 20);
+
+                    self.canvas.set_draw_color(Color::RGB(40, 45, 60));
+                    self.canvas.fill_rect(b_rect).ok();
+                    self.canvas.set_draw_color(Color::RGB(80, 90, 110));
+                    self.canvas.draw_rect(b_rect).ok();
+                    self.draw_bitmap_text(badge_text, b_x + 6, cy + 14, 1, Color::RGB(180, 190, 210));
+                }
+            }
+
+            // Section 2: Create New Player
+            let sep_text = "--- OR START AS NEW PLAYER ---";
+            let sep_w = sep_text.len() as i32 * 6;
+            self.draw_bitmap_text(
+                sep_text,
+                dialog.x() + (dialog.width() as i32 - sep_w) / 2,
+                dialog.y() + 290,
+                1,
+                Color::RGB(120, 130, 155),
+            );
+
+            let is_input_focused = state.is_new_player_selected();
+
+            // Text input box
+            let input_x = dialog.x() + 30;
+            let input_y = dialog.y() + 320;
+            let input_w: u32 = 310;
+            let input_h: u32 = 38;
+            let input_rect = Rect::new(input_x, input_y, input_w, input_h);
+
+            let (in_bg, in_border) = if is_input_focused {
+                (Color::RGB(20, 32, 50), Color::RGB(100, 200, 255))
+            } else {
+                (Color::RGB(20, 22, 30), Color::RGB(55, 65, 80))
+            };
+
+            self.canvas.set_draw_color(in_bg);
+            self.canvas.fill_rect(input_rect).ok();
+            self.canvas.set_draw_color(in_border);
+            self.canvas.draw_rect(input_rect).ok();
+
+            if is_input_focused {
+                let inner_in = Rect::new(input_x + 1, input_y + 1, input_w - 2, input_h - 2);
+                self.canvas.set_draw_color(Color::RGB(255, 255, 255));
+                self.canvas.draw_rect(inner_in).ok();
+            }
+
+            if !state.text.is_empty() {
+                let display_name: String = state.text.to_uppercase();
+                self.draw_bitmap_text(
+                    &display_name,
+                    input_x + 8,
+                    input_y + 11,
+                    2,
+                    Color::RGB(240, 240, 255),
+                );
+            } else if !is_input_focused {
+                self.draw_bitmap_text(
+                    "ENTER NEW NAME...",
+                    input_x + 8,
+                    input_y + 13,
+                    1,
+                    Color::RGB(90, 100, 120),
+                );
+            }
+
+            // Blinking cursor
+            if is_input_focused {
+                let char_width = 12i32;
+                let cursor_x = input_x + 8 + (state.text.chars().count() as i32 * char_width).min((input_w as i32) - 16);
+                let cursor_rect = Rect::new(cursor_x, input_y + 8, 2, input_h - 16);
+                self.canvas.set_draw_color(Color::RGB(200, 220, 255));
+                self.canvas.fill_rect(cursor_rect).ok();
+            }
+
+            // Start button
+            let btn_x = dialog.x() + 350;
+            let btn_y = dialog.y() + 320;
+            let btn_w: u32 = 100;
+            let btn_h: u32 = 38;
+            let btn_color = if state.is_valid() {
+                Color::RGB(45, 140, 75)
+            } else {
+                Color::RGB(40, 60, 50)
+            };
+            self.draw_labeled_button(btn_x, btn_y, btn_w, btn_h, btn_color, "START");
+
+            // Character count indicator (e.g., "3/20")
+            let char_count = state.text.chars().count();
+            let count_text = format!("{}/20", char_count);
+            let count_color = if char_count == 0 {
+                Color::RGB(140, 140, 160)
+            } else {
+                Color::RGB(100, 200, 100)
+            };
+            self.draw_bitmap_text(
+                &count_text,
+                dialog.x() + 290,
+                dialog.y() + 364,
+                1,
+                count_color,
+            );
+
+            // Instructions footer
+            let instr1 = "UP/DOWN: SELECT   ENTER: PLAY   TAB: SWITCH";
+            let instr1_w = instr1.len() as i32 * 6;
+            self.draw_bitmap_text(
+                instr1,
+                dialog.x() + (dialog.width() as i32 - instr1_w) / 2,
+                dialog.y() + 410,
+                1,
+                Color::RGB(170, 180, 200),
+            );
+
+            let instr2 = "CLICK ANY PLAYER CARD TO START DIRECTLY";
+            let instr2_w = instr2.len() as i32 * 6;
+            self.draw_bitmap_text(
+                instr2,
+                dialog.x() + (dialog.width() as i32 - instr2_w) / 2,
+                dialog.y() + 438,
+                1,
+                Color::RGB(110, 180, 220),
+            );
+
+            let instr3 = "ESC: QUIT";
+            let instr3_w = instr3.len() as i32 * 6;
+            self.draw_bitmap_text(
+                instr3,
+                dialog.x() + (dialog.width() as i32 - instr3_w) / 2,
+                dialog.y() + 466,
+                1,
+                Color::RGB(130, 135, 150),
             );
         }
-
-        // Blinking cursor (solid bar after text)
-        let char_width = 12i32; // 6px * scale(2) = 12px per char
-        let cursor_x = input_x + 6 + (name.chars().count() as i32 * char_width).min((input_w as i32) - 14);
-        let cursor_rect = Rect::new(cursor_x, input_y + 8, 2, input_h - 16);
-        self.canvas.set_draw_color(Color::RGB(200, 220, 255));
-        self.canvas.fill_rect(cursor_rect).ok();
-
-        // Instructions
-        let instructions = if is_startup {
-            "PRESS ENTER TO START GAME"
-        } else {
-            "ENTER TO SUBMIT  ESC TO SKIP"
-        };
-        let instr_x = if is_startup { dialog.x() + 50 } else { dialog.x() + 52 };
-        self.draw_bitmap_text(
-            instructions,
-            instr_x,
-            dialog.y() + 198,
-            1,
-            Color::RGB(140, 140, 160),
-        );
-
-        // Character count indicator (e.g., "3/20")
-        let char_count = name.chars().count();
-        let count_text = format!("{}/20", char_count);
-        let count_color = if char_count == 0 {
-            Color::RGB(200, 80, 80) // Red if empty
-        } else {
-            Color::RGB(100, 200, 100) // Green if valid
-        };
-        self.draw_bitmap_text(
-            &count_text,
-            dialog.x() + 320,
-            dialog.y() + 248,
-            1,
-            count_color,
-        );
     }
 
     /// Renders the update available dialog.

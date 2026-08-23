@@ -155,11 +155,19 @@ impl Default for ScoreTracker {
     }
 }
 
-/// State for the leaderboard name entry flow.
+use crate::storage::{self, UserProfile};
+
+/// State for the leaderboard name entry / player selection flow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NameEntryState {
-    /// Characters typed so far by the player.
+    /// Characters typed so far for a new player.
     pub text: String,
+    /// Discovered existing player profiles.
+    pub profiles: Vec<UserProfile>,
+    /// Selected index: 0..profiles.len() for existing profiles, profiles.len() for new player input.
+    pub selected_index: usize,
+    /// Current page for existing profiles pagination.
+    pub page: usize,
     /// The score that qualified for the leaderboard.
     pub score: u32,
     /// The total elapsed time in seconds at game completion (across all levels).
@@ -173,10 +181,18 @@ pub struct NameEntryState {
 }
 
 impl NameEntryState {
+    /// Number of profiles displayed per page.
+    pub const PROFILES_PER_PAGE: usize = 3;
+
     /// Creates a new name entry state with the given score, time, and cumulative stats.
     pub fn new(score: u32, time_seconds: u32, hints_used: u32, shuffles_used: u32, undos_used: u32) -> Self {
+        let profiles = storage::list_user_profiles();
+        let selected_index = if profiles.is_empty() { 0 } else { 0 };
         Self {
             text: String::new(),
+            profiles,
+            selected_index,
+            page: 0,
             score,
             time_seconds,
             hints_used,
@@ -185,9 +201,152 @@ impl NameEntryState {
         }
     }
 
+    /// Creates a new name entry state with an explicit list of profiles (useful for testing).
+    pub fn with_profiles(
+        profiles: Vec<UserProfile>,
+        score: u32,
+        time_seconds: u32,
+        hints_used: u32,
+        shuffles_used: u32,
+        undos_used: u32,
+    ) -> Self {
+        Self {
+            text: String::new(),
+            profiles,
+            selected_index: 0,
+            page: 0,
+            score,
+            time_seconds,
+            hints_used,
+            shuffles_used,
+            undos_used,
+        }
+    }
+
+    /// Total pages for profile list.
+    pub fn total_pages(&self) -> usize {
+        if self.profiles.is_empty() {
+            1
+        } else {
+            (self.profiles.len() + Self::PROFILES_PER_PAGE - 1) / Self::PROFILES_PER_PAGE
+        }
+    }
+
+    /// Returns start index of profiles for the current page.
+    pub fn page_start_index(&self) -> usize {
+        self.page * Self::PROFILES_PER_PAGE
+    }
+
+    /// Returns end index (exclusive) of profiles for the current page.
+    pub fn page_end_index(&self) -> usize {
+        (self.page_start_index() + Self::PROFILES_PER_PAGE).min(self.profiles.len())
+    }
+
+    /// Returns true if the "New Player" text input field is currently selected.
+    pub fn is_new_player_selected(&self) -> bool {
+        self.selected_index >= self.profiles.len()
+    }
+
+    /// Returns the currently selected profile, if an existing profile is selected.
+    pub fn selected_profile(&self) -> Option<&UserProfile> {
+        self.profiles.get(self.selected_index)
+    }
+
+    /// Moves selection to the previous item (or previous page).
+    pub fn select_prev(&mut self) {
+        if self.profiles.is_empty() {
+            self.selected_index = 0;
+            return;
+        }
+
+        if self.is_new_player_selected() {
+            // Move from New Player field to the last visible item on current page
+            let end = self.page_end_index();
+            if end > 0 {
+                self.selected_index = end - 1;
+            }
+        } else if self.selected_index == self.page_start_index() {
+            if self.page > 0 {
+                self.page -= 1;
+                self.selected_index = self.page_end_index().saturating_sub(1);
+            } else {
+                // Wrap to New Player field
+                self.selected_index = self.profiles.len();
+            }
+        } else {
+            self.selected_index = self.selected_index.saturating_sub(1);
+        }
+    }
+
+    /// Moves selection to the next item (or next page / New Player field).
+    pub fn select_next(&mut self) {
+        if self.profiles.is_empty() {
+            self.selected_index = 0;
+            return;
+        }
+
+        if self.is_new_player_selected() {
+            // Move from New Player field to first item on page 0
+            self.page = 0;
+            self.selected_index = 0;
+        } else if self.selected_index + 1 >= self.page_end_index() {
+            if self.page + 1 < self.total_pages() {
+                self.page += 1;
+                self.selected_index = self.page_start_index();
+            } else {
+                // Move to New Player field
+                self.selected_index = self.profiles.len();
+            }
+        } else {
+            self.selected_index += 1;
+        }
+    }
+
+    /// Toggles focus between the existing player list and the new player field.
+    pub fn toggle_field(&mut self) {
+        if self.is_new_player_selected() {
+            if !self.profiles.is_empty() {
+                self.selected_index = self.page_start_index();
+            }
+        } else {
+            self.selected_index = self.profiles.len();
+        }
+    }
+
+    /// Switches to the next page of profiles.
+    pub fn next_page(&mut self) {
+        if self.page + 1 < self.total_pages() {
+            self.page += 1;
+            self.selected_index = self.page_start_index();
+        }
+    }
+
+    /// Switches to the previous page of profiles.
+    pub fn prev_page(&mut self) {
+        if self.page > 0 {
+            self.page -= 1;
+            self.selected_index = self.page_start_index();
+        }
+    }
+
+    /// Selects a specific profile index.
+    pub fn select_profile_at_index(&mut self, idx: usize) {
+        if idx < self.profiles.len() {
+            self.selected_index = idx;
+            self.page = idx / Self::PROFILES_PER_PAGE;
+        }
+    }
+
+    /// Selects the new player input field.
+    pub fn select_new_player(&mut self) {
+        self.selected_index = self.profiles.len();
+    }
+
     /// Appends a character to the name buffer if it won't exceed 20 characters.
+    /// Auto-focuses the New Player input field.
     /// Returns true if the character was added.
     pub fn push_char(&mut self, c: char) -> bool {
+        self.selected_index = self.profiles.len();
         if self.text.chars().count() < 20 {
             self.text.push(c);
             true
@@ -197,14 +356,16 @@ impl NameEntryState {
     }
 
     /// Removes the last character from the name buffer.
+    /// Auto-focuses the New Player input field.
     /// Returns true if a character was removed.
     pub fn pop_char(&mut self) -> bool {
+        self.selected_index = self.profiles.len();
         self.text.pop().is_some()
     }
 
     /// Returns true if the current text is a valid name (1-20 characters).
     pub fn is_valid(&self) -> bool {
-        let len = self.text.chars().count();
+        let len = self.text.trim().chars().count();
         (1..=20).contains(&len)
     }
 }
@@ -390,5 +551,59 @@ mod tests {
         }
         assert_eq!(entry.text.chars().count(), 20);
         assert!(entry.is_valid()); // 20 chars: valid
+    }
+
+    #[test]
+    fn test_name_entry_navigation() {
+        let profiles = vec![
+            UserProfile {
+                name: "Alice".to_string(),
+                has_save: true,
+                save_level: 2,
+                max_completed_level: 1,
+                streak: 3,
+                best_score: 500,
+                last_played_epoch_secs: 100,
+            },
+            UserProfile {
+                name: "Bob".to_string(),
+                has_save: false,
+                save_level: 1,
+                max_completed_level: 5,
+                streak: 1,
+                best_score: 800,
+                last_played_epoch_secs: 90,
+            },
+        ];
+
+        let mut entry = NameEntryState::with_profiles(profiles, 0, 0, 0, 0, 0);
+        assert_eq!(entry.selected_index, 0);
+        assert_eq!(entry.selected_profile().unwrap().name, "Alice");
+        assert!(!entry.is_new_player_selected());
+
+        // Select next -> Bob
+        entry.select_next();
+        assert_eq!(entry.selected_index, 1);
+        assert_eq!(entry.selected_profile().unwrap().name, "Bob");
+
+        // Select next -> New Player input (index 2)
+        entry.select_next();
+        assert_eq!(entry.selected_index, 2);
+        assert!(entry.is_new_player_selected());
+
+        // Select next wraps to 0
+        entry.select_next();
+        assert_eq!(entry.selected_index, 0);
+
+        // Select prev wraps to New Player
+        entry.select_prev();
+        assert_eq!(entry.selected_index, 2);
+        assert!(entry.is_new_player_selected());
+
+        // Toggle field toggles between 0 and 2
+        entry.toggle_field();
+        assert_eq!(entry.selected_index, 0);
+        entry.toggle_field();
+        assert_eq!(entry.selected_index, 2);
     }
 }
