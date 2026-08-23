@@ -281,6 +281,8 @@ fn main() {
 
     // Track which state to return to when leaving the leaderboard view
     let mut leaderboard_return_status = GameStatus::Won;
+    // Track notification feedback when stats image is saved
+    let mut stats_saved_toast: Option<Instant> = None;
     // Track the currently selected menu item in the pause menu (0-indexed)
     let mut pause_menu_selection: usize = 0;
     const PAUSE_MENU_ITEM_COUNT: usize = 11;
@@ -428,6 +430,7 @@ fn main() {
                                                     shuffle_state.consecutive_days = 1;
                                                     daily_streak_achievement = Some(1);
                                                 }
+                                                shuffle_state.best_streak = shuffle_state.best_streak.max(shuffle_state.consecutive_days);
                                                 shuffle_state.last_launch_epoch_days = today_days;
                                             }
                                         }
@@ -539,8 +542,8 @@ fn main() {
                                     game_state.status = GameStatus::Shortcuts;
                                 }
                                 6 => {
-                                    // LEADERBOARD
-                                    leaderboard_return_status = GameStatus::Paused;
+                                    // LEADERBOARD / ACHIEVEMENTS
+                                    leaderboard_return_status = GameStatus::Menu;
                                     game_state.status = GameStatus::Leaderboard;
                                 }
                                 7 => {
@@ -849,6 +852,12 @@ fn main() {
                                         let mut leaderboard = Leaderboard::load(&current_user_name);
                                         leaderboard.insert(lb_entry);
                                         leaderboard.save(&current_user_name);
+
+                                        let mut trophies = TrophyState::load(&current_user_name);
+                                        if (score as u64) > trophies.total_career_score {
+                                            trophies.total_career_score = score as u64;
+                                        }
+                                        trophies.save(&current_user_name);
                                     }
                                     leaderboard_return_status = GameStatus::GameOver;
                                     game_state.status = GameStatus::Leaderboard;
@@ -1120,7 +1129,7 @@ fn main() {
                                     game_state.status = GameStatus::Shortcuts;
                                 } else if y >= start_y + spacing * 6 && y < start_y + spacing * 6 + btn_h as i32 {
                                     // LEADERBOARD / ACHIEVEMENTS
-                                    leaderboard_return_status = GameStatus::Paused;
+                                    leaderboard_return_status = GameStatus::Menu;
                                     game_state.status = GameStatus::Leaderboard;
                                 } else if y >= start_y + spacing * 7 && y < start_y + spacing * 7 + btn_h as i32 {
                                     // DIFFICULTY toggle
@@ -1319,21 +1328,79 @@ fn main() {
                                 }
                             }
                         } else if game_state.status == GameStatus::Leaderboard {
-                            // Handle clicks on Achievements dialog (Back button)
+                            // Handle clicks on Trophy & Stats dialog (Save Stats Image & Close buttons)
                             let (win_w, win_h) = renderer.window_size();
-                            let dialog_w: u32 = 900;
-                            let dialog_h: u32 = 620;
-                            let dialog_x = (win_w.saturating_sub(dialog_w)) / 2;
-                            let dialog_y = (win_h.saturating_sub(dialog_h)) / 2;
+                            let (btn1_rect, btn2_rect) = Renderer::leaderboard_buttons(win_w, win_h);
+                            let stats_card_rect = Renderer::leaderboard_stats_card_rect(win_w, win_h);
 
-                            let btn_w: u32 = 180;
-                            let btn_h: u32 = 40;
-                            let btn_x = dialog_x as i32 + ((dialog_w - btn_w) / 2) as i32;
-                            let btn_y = dialog_y as i32 + dialog_h as i32 - 50;
-
-                            if x >= btn_x && x < btn_x + btn_w as i32
-                                && y >= btn_y && y < btn_y + btn_h as i32
+                            if x >= btn1_rect.x() && x < btn1_rect.x() + btn1_rect.width() as i32
+                                && y >= btn1_rect.y() && y < btn1_rect.y() + btn1_rect.height() as i32
                             {
+                                // Save Stats Image (captures rendered stats card excluding action buttons)
+                                if let Ok(pixels) = renderer.canvas.read_pixels(Some(stats_card_rect), sdl2::pixels::PixelFormatEnum::RGB24) {
+                                    let storage_dir = xmahjong::storage::storage_dir_for_user(&current_user_name);
+                                    let _ = std::fs::create_dir_all(&storage_dir);
+                                    let timestamp = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_secs();
+                                    let path = storage_dir.join(format!("trophies_stats_{}.bmp", timestamp));
+
+                                    let w = stats_card_rect.width() as usize;
+                                    let h = stats_card_rect.height() as usize;
+                                    let row_stride = (w * 3 + 3) & !3;
+                                    let image_size = row_stride * h;
+                                    let file_size = 54 + image_size;
+
+                                    let mut bmp = Vec::with_capacity(file_size);
+                                    // BMP File Header (14 bytes)
+                                    bmp.extend_from_slice(b"BM");
+                                    bmp.extend_from_slice(&(file_size as u32).to_le_bytes());
+                                    bmp.extend_from_slice(&[0, 0, 0, 0]); // Reserved
+                                    bmp.extend_from_slice(&54u32.to_le_bytes()); // Offset
+
+                                    // BMP DIB Header (40 bytes)
+                                    bmp.extend_from_slice(&40u32.to_le_bytes());
+                                    bmp.extend_from_slice(&(w as i32).to_le_bytes());
+                                    bmp.extend_from_slice(&(h as i32).to_le_bytes());
+                                    bmp.extend_from_slice(&1u16.to_le_bytes()); // Color planes
+                                    bmp.extend_from_slice(&24u16.to_le_bytes()); // 24 BPP
+                                    bmp.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB (uncompressed)
+                                    bmp.extend_from_slice(&(image_size as u32).to_le_bytes());
+                                    bmp.extend_from_slice(&2835u32.to_le_bytes()); // 72 DPI HRes
+                                    bmp.extend_from_slice(&2835u32.to_le_bytes()); // 72 DPI VRes
+                                    bmp.extend_from_slice(&0u32.to_le_bytes()); // Colors
+                                    bmp.extend_from_slice(&0u32.to_le_bytes()); // Important colors
+
+                                    // Pixel Data (Bottom-up BGR)
+                                    for row in (0..h).rev() {
+                                        let row_start = row * w * 3;
+                                        for col in 0..w {
+                                            let px = row_start + col * 3;
+                                            let r = pixels[px];
+                                            let g = pixels[px + 1];
+                                            let b = pixels[px + 2];
+                                            bmp.push(b);
+                                            bmp.push(g);
+                                            bmp.push(r);
+                                        }
+                                        for _ in 0..(row_stride - w * 3) {
+                                            bmp.push(0);
+                                        }
+                                    }
+
+                                    if std::fs::write(&path, &bmp).is_ok() {
+                                        // Save a copy to working directory for quick access
+                                        let _ = std::fs::write("xmahjong_trophies_stats.bmp", &bmp);
+                                        // Open in default image viewer so the player can view & share online
+                                        let _ = open::that(&path);
+                                    }
+                                    stats_saved_toast = Some(Instant::now());
+                                }
+                            } else if x >= btn2_rect.x() && x < btn2_rect.x() + btn2_rect.width() as i32
+                                && y >= btn2_rect.y() && y < btn2_rect.y() + btn2_rect.height() as i32
+                            {
+                                // Close button returns to menu screen (same as Escape)
                                 game_state.status = leaderboard_return_status;
                             }
                         } else if game_state.status == GameStatus::Shortcuts {
@@ -1689,7 +1756,8 @@ fn main() {
             }
             GameStatus::Leaderboard => {
                 renderer.render_board(&game_state, layout_rect);
-                renderer.render_leaderboard(&current_user_name);
+                let is_saved_active = stats_saved_toast.map(|t| t.elapsed() < Duration::from_secs(2)).unwrap_or(false);
+                renderer.render_leaderboard(&current_user_name, is_saved_active);
             }
             GameStatus::Shortcuts => {
                 renderer.render_board(&game_state, layout_rect);
@@ -1791,6 +1859,7 @@ fn handle_select_tile(
                     let mut progress = UserProgress::load(user_name);
                     progress.mark_completed(state.level);
                     progress.save(user_name);
+                    trophies.total_career_score += state.score.live_score() as u64;
                     trophies.save(user_name);
                 }
 

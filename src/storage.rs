@@ -235,6 +235,9 @@ pub struct TrophyState {
     /// Number of levels cleared without using any undos.
     #[serde(default)]
     pub no_undos_count: u32,
+    /// Total career score accumulated across all completed levels.
+    #[serde(default)]
+    pub total_career_score: u64,
 }
 
 impl Default for TrophyState {
@@ -245,6 +248,7 @@ impl Default for TrophyState {
             no_hints_count: 0,
             no_shuffles_count: 0,
             no_undos_count: 0,
+            total_career_score: 0,
         }
     }
 }
@@ -404,6 +408,9 @@ pub struct ShuffleState {
     /// Number of consecutive days launched.
     #[serde(default)]
     pub consecutive_days: u32,
+    /// Maximum streak record achieved.
+    #[serde(default)]
+    pub best_streak: u32,
 }
 
 impl Default for ShuffleState {
@@ -412,6 +419,7 @@ impl Default for ShuffleState {
             last_bonus_date: String::new(),
             last_launch_epoch_days: 0,
             consecutive_days: 0,
+            best_streak: 0,
         }
     }
 }
@@ -421,10 +429,14 @@ impl ShuffleState {
     /// Returns default state (1 shuffle) if no file exists or if it's corrupt.
     pub fn load(user_name: &str) -> Self {
         let path = resolve_user_dir(user_name).join("shuffles.json");
-        match fs::read_to_string(&path) {
+        let mut state: Self = match fs::read_to_string(&path) {
             Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
             Err(_) => Self::default(),
+        };
+        if state.consecutive_days > state.best_streak {
+            state.best_streak = state.consecutive_days;
         }
+        state
     }
 
     /// Saves the shuffle state to disk for a specific user.

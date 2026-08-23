@@ -167,6 +167,16 @@ You can replay any level you have already completed (or currently unlocked):
 3. Browse the 1000-level catalog with phase jump tabs (**PENGUIN**, **DOG**, **SPACE**, **ENDGAME**, **GRANDMASTER**) or page through using `< PREV` / `NEXT >` (or `PgUp` / `PgDn`).
 4. Select any completed or unlocked level to start playing immediately. Completed levels are saved to `progress.json` per user profile.
 
+## Trophies & Stats
+
+View your career achievements, consistency streaks, and clean-clearance records:
+- **Career Overview:** Tracks highest completed level out of 1000 and total career points accumulated across runs.
+- **Daily Consistency Streaks:** Displays your current active day streak and all-time best streak record with daily launch gift bonuses.
+- **Mastery & Clean Clearances:** Counts the total number of levels cleared with **No Hints** (💡), **No Undos** (↩️), and **No Lives/Shuffles Used** (❤️).
+- **Save Stats Image:** Click the **SAVE STATS IMAGE** button to export a high-resolution screenshot of your trophy dashboard to disk (`trophies_stats_<timestamp>.bmp`) and immediately open it for convenient sharing online.
+- **Close:** Click **CLOSE** or press **Escape** / **Enter** to exit and return directly to the menu screen.
+- Access via the **ACHIEVEMENTS** option in the Pause Menu or from the Game Won / Game Over summary screens.
+
 
 ## Packaging (.deb, .rpm, AppImage)
 
