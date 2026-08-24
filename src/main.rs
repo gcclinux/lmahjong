@@ -624,7 +624,7 @@ fn main() {
                                 }
                                 6 => {
                                     // LEADERBOARD / ACHIEVEMENTS
-                                    leaderboard_return_status = GameStatus::Menu;
+                                    leaderboard_return_status = GameStatus::Paused;
                                     game_state.status = GameStatus::Leaderboard;
                                 }
                                 7 => {
@@ -1091,12 +1091,17 @@ fn main() {
                                 game_state.timer.pause();
                                 pause_menu_selection = 0;
                             }
-                            // Check if click is on the HUD shuffle area (rightmost 1/5th)
+                            // Check if click is on the top HUD bar (y in 0..40)
                             else if y >= 0 && y < 40 {
-                                let section_w = win_w as i32 / 5;
-                                let shuffle_section_start = section_w * 4;
-                                if x >= shuffle_section_start && x < win_w as i32 {
-                                    // Clicked on shuffle in HUD
+                                let mute_rect = xmahjong::renderer::hud_mute_button_rect(win_w);
+                                if mute_rect.contains_point((x, y)) {
+                                    audio.toggle_mute();
+                                    settings.muted = audio.is_muted();
+                                    if !dev_mode.enabled {
+                                        settings.save(&current_user_name);
+                                    }
+                                } else {
+                                    // Clicked on HUD lives/shuffle area
                                     match logic::shuffle(&mut game_state) {
                                         Ok(()) => {
                                             audio.play_shuffle();
@@ -1210,7 +1215,7 @@ fn main() {
                                     game_state.status = GameStatus::Shortcuts;
                                 } else if y >= start_y + spacing * 6 && y < start_y + spacing * 6 + btn_h as i32 {
                                     // LEADERBOARD / ACHIEVEMENTS
-                                    leaderboard_return_status = GameStatus::Menu;
+                                    leaderboard_return_status = GameStatus::Paused;
                                     game_state.status = GameStatus::Leaderboard;
                                 } else if y >= start_y + spacing * 7 && y < start_y + spacing * 7 + btn_h as i32 {
                                     // DIFFICULTY toggle
@@ -1781,7 +1786,7 @@ fn main() {
         match game_state.status {
             GameStatus::Playing => {
                 renderer.render_board(&game_state, layout_rect);
-                renderer.render_hud(&game_state);
+                renderer.render_hud(&game_state, audio.is_muted());
                 let _ = renderer.render_menu_button();
 
                 // Show hint suggestion after inactivity
@@ -1796,7 +1801,7 @@ fn main() {
             }
             GameStatus::Paused => {
                 renderer.render_board(&game_state, layout_rect);
-                renderer.render_hud(&game_state);
+                renderer.render_hud(&game_state, audio.is_muted());
                 let diff_str = match game_state.difficulty {
                     Difficulty::Easy => "EASY",
                     Difficulty::Normal => "NORMAL",
@@ -1956,9 +1961,13 @@ fn handle_select_tile(
                 duration_ms: 500,
             });
         }
-        SelectionResult::Selected
-        | SelectionResult::Deselected
-        | SelectionResult::Ignored => {}
+        SelectionResult::Selected => {
+            audio.play_select();
+        }
+        SelectionResult::Deselected => {
+            audio.play_deselect();
+        }
+        SelectionResult::Ignored => {}
     }
 
     false

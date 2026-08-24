@@ -10,6 +10,8 @@ use sdl2::mixer::{self, Chunk, InitFlag};
 /// Degrades gracefully when SDL2_mixer initialization fails or sound
 /// files are unavailable — all `play_*` methods become no-ops.
 pub struct AudioManager {
+    select_sound: Option<Chunk>,
+    deselect_sound: Option<Chunk>,
     match_sound: Option<Chunk>,
     error_sound: Option<Chunk>,
     victory_sound: Option<Chunk>,
@@ -29,16 +31,20 @@ impl AudioManager {
         let initialized = mixer::open_audio(44100, mixer::AUDIO_S16LSB, 2, 1024).is_ok();
         if initialized {
             let _ = mixer::init(InitFlag::OGG);
-            mixer::allocate_channels(4);
+            mixer::allocate_channels(8);
         }
 
         // Try to load sound effects (will be None if files don't exist or audio not initialized)
-        let match_sound = Self::load_sound("assets/sounds/match.ogg");
-        let error_sound = Self::load_sound("assets/sounds/error.ogg");
-        let victory_sound = Self::load_sound("assets/sounds/victory.ogg");
-        let shuffle_sound = Self::load_sound("assets/sounds/shuffle.ogg");
+        let select_sound = Self::load_sound_by_name("select");
+        let deselect_sound = Self::load_sound_by_name("deselect");
+        let match_sound = Self::load_sound_by_name("match");
+        let error_sound = Self::load_sound_by_name("error");
+        let victory_sound = Self::load_sound_by_name("victory");
+        let shuffle_sound = Self::load_sound_by_name("shuffle");
 
         AudioManager {
+            select_sound,
+            deselect_sound,
             match_sound,
             error_sound,
             victory_sound,
@@ -48,10 +54,53 @@ impl AudioManager {
         }
     }
 
-    /// Attempts to load a sound file. Returns `None` if the file doesn't
-    /// exist or cannot be loaded (graceful degradation).
-    fn load_sound(path: &str) -> Option<Chunk> {
-        Chunk::from_file(path).ok()
+    /// Attempts to load a sound file given its base name (e.g. "select").
+    /// Checks for .wav and .ogg extensions across common asset locations.
+    fn load_sound_by_name(name: &str) -> Option<Chunk> {
+        let candidates = [
+            format!("assets/sounds/{}.wav", name),
+            format!("assets/sounds/{}.ogg", name),
+            format!("../assets/sounds/{}.wav", name),
+            format!("../assets/sounds/{}.ogg", name),
+            format!("../../assets/sounds/{}.wav", name),
+            format!("../../assets/sounds/{}.ogg", name),
+        ];
+
+        for path in &candidates {
+            if let Ok(chunk) = Chunk::from_file(path) {
+                return Some(chunk);
+            }
+        }
+
+        // Also check relative to executable if available
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                for ext in &["wav", "ogg"] {
+                    let path = dir.join("assets").join("sounds").join(format!("{}.{}", name, ext));
+                    if let Ok(chunk) = Chunk::from_file(&path) {
+                        return Some(chunk);
+                    }
+                    let path = dir.join("../../assets").join("sounds").join(format!("{}.{}", name, ext));
+                    if let Ok(chunk) = Chunk::from_file(&path) {
+                        return Some(chunk);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Plays the tile select sound effect.
+    /// No-op if muted or sound is unavailable.
+    pub fn play_select(&self) {
+        self.play(&self.select_sound);
+    }
+
+    /// Plays the tile deselect sound effect.
+    /// No-op if muted or sound is unavailable.
+    pub fn play_deselect(&self) {
+        self.play(&self.deselect_sound);
     }
 
     /// Plays the match success sound effect.
@@ -118,6 +167,8 @@ mod tests {
     /// This avoids needing audio hardware for unit tests.
     fn make_test_manager() -> AudioManager {
         AudioManager {
+            select_sound: None,
+            deselect_sound: None,
             match_sound: None,
             error_sound: None,
             victory_sound: None,
@@ -178,6 +229,8 @@ mod tests {
     fn test_play_methods_do_not_panic_when_no_sound() {
         let manager = make_test_manager();
         // These should all be no-ops without panicking
+        manager.play_select();
+        manager.play_deselect();
         manager.play_match();
         manager.play_error();
         manager.play_victory();
@@ -189,6 +242,8 @@ mod tests {
         let mut manager = make_test_manager();
         manager.set_mute(true);
         // These should all be no-ops without panicking
+        manager.play_select();
+        manager.play_deselect();
         manager.play_match();
         manager.play_error();
         manager.play_victory();

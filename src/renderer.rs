@@ -214,6 +214,15 @@ pub struct LayoutMetrics {
 /// Height of the HUD bar in pixels (timer, score, shuffle display).
 pub const HUD_BAR_HEIGHT: u32 = 40;
 
+/// Returns the bounding Rect of the HUD mute button for hit-testing.
+pub fn hud_mute_button_rect(win_w: u32) -> Rect {
+    let btn_w = 34;
+    let btn_h = 26;
+    let btn_x = win_w as i32 - btn_w - 14;
+    let btn_y = 7;
+    Rect::new(btn_x, btn_y, btn_w as u32, btn_h as u32)
+}
+
 /// Computes the layout rectangle that fits within the window while maintaining aspect ratio.
 ///
 /// The layout is scaled to be as large as possible without exceeding the window bounds,
@@ -386,6 +395,17 @@ impl PlaceholderTiles {
 pub struct UiTextures {
     /// Whether real UI textures were loaded successfully.
     pub loaded: bool,
+}
+
+/// Icon types rendered inside HUD stat pills.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HudIcon {
+    None,
+    Tile,
+    Heart,
+    Trophy,
+    Lightbulb,
+    Clock,
 }
 
 /// The main renderer for xMahjong.
@@ -1413,71 +1433,428 @@ impl Renderer {
         btn
     }
 
-    /// Renders the HUD overlay: timer display (MM:SS), score, level, and shuffles remaining.
-    ///
-    /// The HUD is drawn as a top bar with four sections:
-    /// - Left: Timer display
-    /// - Center-left: Score
-    /// - Center-right: Level
-    /// - Right: Shuffle count remaining
-    ///
-    /// Without fonts, these are rendered as colored rectangles with
-    /// distinguishable colors to indicate each element's purpose.
-    pub fn render_hud(&mut self, state: &GameState) {
+    /// Draws a crisp pixel-art Mahjong tile icon at (x, y) with dimensions ~12x14.
+    pub fn draw_icon_tile(&mut self, x: i32, y: i32) {
+        // Tile outer border / drop shadow
+        self.canvas.set_draw_color(Color::RGB(30, 40, 55));
+        self.canvas.fill_rect(Rect::new(x, y, 12, 14)).ok();
+
+        // Tile ivory body
+        self.canvas.set_draw_color(Color::RGB(245, 245, 240));
+        self.canvas.fill_rect(Rect::new(x + 1, y + 1, 10, 12)).ok();
+
+        // Top-left highlight
+        self.canvas.set_draw_color(Color::RGB(255, 255, 255));
+        self.canvas.draw_line(Point::new(x + 1, y + 1), Point::new(x + 10, y + 1)).ok();
+        self.canvas.draw_line(Point::new(x + 1, y + 1), Point::new(x + 1, y + 12)).ok();
+
+        // Bottom-right inner shadow
+        self.canvas.set_draw_color(Color::RGB(190, 195, 200));
+        self.canvas.draw_line(Point::new(x + 10, y + 2), Point::new(x + 10, y + 12)).ok();
+        self.canvas.draw_line(Point::new(x + 2, y + 12), Point::new(x + 10, y + 12)).ok();
+
+        // Red Dragon character '中'
+        self.canvas.set_draw_color(Color::RGB(220, 30, 50));
+        self.canvas.fill_rect(Rect::new(x + 5, y + 3, 2, 8)).ok();
+        self.canvas.draw_rect(Rect::new(x + 3, y + 4, 6, 5)).ok();
+    }
+
+    /// Draws a crisp pixel-art red heart icon at (x, y) with dimensions 12x11.
+    pub fn draw_icon_heart(&mut self, x: i32, y: i32) {
+        let pattern: [&str; 10] = [
+            " .XX...XX. ",
+            "XXXX.XXXXX",
+            "XXXXXXXXXX",
+            "XXXXXXXXXX",
+            "XXXXXXXXXX",
+            " XXXXXXXX ",
+            "  XXXXXX  ",
+            "   XXXX   ",
+            "    XX    ",
+            "    ..    ",
+        ];
+        for (r, row) in pattern.iter().enumerate() {
+            for (c, ch) in row.chars().enumerate() {
+                if ch == 'X' {
+                    let col = if r <= 2 && c <= 4 {
+                        Color::RGB(255, 120, 140) // highlight
+                    } else if r >= 7 {
+                        Color::RGB(200, 20, 45) // shadow
+                    } else {
+                        Color::RGB(245, 40, 70) // primary red
+                    };
+                    self.canvas.set_draw_color(col);
+                    self.canvas.draw_point(Point::new(x + c as i32, y + r as i32)).ok();
+                } else if ch == '.' {
+                    self.canvas.set_draw_color(Color::RGB(180, 20, 40));
+                    self.canvas.draw_point(Point::new(x + c as i32, y + r as i32)).ok();
+                }
+            }
+        }
+    }
+
+    /// Draws a crisp pixel-art golden trophy icon at (x, y) with dimensions 13x12.
+    pub fn draw_icon_trophy(&mut self, x: i32, y: i32) {
+        let gold_bright = Color::RGB(255, 240, 120);
+        let gold_mid = Color::RGB(255, 205, 30);
+        let gold_dark = Color::RGB(190, 140, 15);
+
+        // Cup rim
+        self.canvas.set_draw_color(gold_bright);
+        self.canvas.fill_rect(Rect::new(x + 2, y, 9, 2)).ok();
+
+        // Cup body
+        self.canvas.set_draw_color(gold_mid);
+        self.canvas.fill_rect(Rect::new(x + 3, y + 2, 7, 3)).ok();
+        self.canvas.fill_rect(Rect::new(x + 4, y + 5, 5, 2)).ok();
+
+        // Cup highlight & shadow
+        self.canvas.set_draw_color(gold_bright);
+        self.canvas.draw_point(Point::new(x + 4, y + 2)).ok();
+        self.canvas.draw_point(Point::new(x + 4, y + 3)).ok();
+        self.canvas.set_draw_color(gold_dark);
+        self.canvas.draw_point(Point::new(x + 8, y + 3)).ok();
+        self.canvas.draw_point(Point::new(x + 7, y + 5)).ok();
+
+        // Handles (left & right wings)
+        self.canvas.set_draw_color(gold_mid);
+        self.canvas.draw_line(Point::new(x + 1, y + 1), Point::new(x + 1, y + 4)).ok();
+        self.canvas.draw_point(Point::new(x + 2, y + 1)).ok();
+        self.canvas.draw_point(Point::new(x + 2, y + 4)).ok();
+
+        self.canvas.draw_line(Point::new(x + 11, y + 1), Point::new(x + 11, y + 4)).ok();
+        self.canvas.draw_point(Point::new(x + 10, y + 1)).ok();
+        self.canvas.draw_point(Point::new(x + 10, y + 4)).ok();
+
+        // Stem
+        self.canvas.set_draw_color(gold_dark);
+        self.canvas.fill_rect(Rect::new(x + 5, y + 7, 3, 2)).ok();
+
+        // Base
+        self.canvas.set_draw_color(gold_bright);
+        self.canvas.fill_rect(Rect::new(x + 4, y + 9, 5, 1)).ok();
+        self.canvas.set_draw_color(gold_mid);
+        self.canvas.fill_rect(Rect::new(x + 3, y + 10, 7, 2)).ok();
+    }
+
+    /// Draws a crisp pixel-art yellow lightbulb icon at (x, y) with dimensions 11x13.
+    pub fn draw_icon_lightbulb(&mut self, x: i32, y: i32) {
+        let bulb_glow = Color::RGB(255, 255, 180);
+        let bulb_yellow = Color::RGB(255, 215, 30);
+        let bulb_dark = Color::RGB(210, 165, 20);
+        let base_metal = Color::RGB(160, 175, 195);
+        let base_dark = Color::RGB(110, 120, 135);
+
+        // Glass top
+        self.canvas.set_draw_color(bulb_yellow);
+        self.canvas.fill_rect(Rect::new(x + 3, y, 5, 2)).ok();
+        self.canvas.fill_rect(Rect::new(x + 1, y + 2, 9, 4)).ok();
+        self.canvas.fill_rect(Rect::new(x + 2, y + 6, 7, 2)).ok();
+        self.canvas.fill_rect(Rect::new(x + 3, y + 8, 5, 1)).ok();
+
+        // Glass highlight
+        self.canvas.set_draw_color(bulb_glow);
+        self.canvas.fill_rect(Rect::new(x + 3, y + 2, 2, 3)).ok();
+
+        // Glass shadow
+        self.canvas.set_draw_color(bulb_dark);
+        self.canvas.draw_line(Point::new(x + 8, y + 3), Point::new(x + 8, y + 6)).ok();
+
+        // Screw base
+        self.canvas.set_draw_color(base_metal);
+        self.canvas.fill_rect(Rect::new(x + 3, y + 9, 5, 1)).ok();
+        self.canvas.fill_rect(Rect::new(x + 3, y + 11, 5, 1)).ok();
+        self.canvas.set_draw_color(base_dark);
+        self.canvas.fill_rect(Rect::new(x + 4, y + 10, 3, 1)).ok();
+        self.canvas.fill_rect(Rect::new(x + 4, y + 12, 3, 1)).ok();
+    }
+
+    /// Draws a crisp pixel-art clock icon at (x, y) with dimensions 12x12.
+    pub fn draw_icon_clock(&mut self, x: i32, y: i32) {
+        let clock_ring = Color::RGB(120, 210, 255);
+        let clock_face = Color::RGB(20, 30, 50);
+        let clock_hands = Color::RGB(255, 255, 255);
+
+        // Circular background
+        self.canvas.set_draw_color(clock_face);
+        self.canvas.fill_rect(Rect::new(x + 2, y + 2, 8, 8)).ok();
+
+        // Circular ring outline
+        self.canvas.set_draw_color(clock_ring);
+        self.canvas.draw_line(Point::new(x + 4, y + 1), Point::new(x + 7, y + 1)).ok();
+        self.canvas.draw_line(Point::new(x + 4, y + 10), Point::new(x + 7, y + 10)).ok();
+        self.canvas.draw_line(Point::new(x + 1, y + 4), Point::new(x + 1, y + 7)).ok();
+        self.canvas.draw_line(Point::new(x + 10, y + 4), Point::new(x + 10, y + 7)).ok();
+        self.canvas.draw_point(Point::new(x + 2, y + 2)).ok();
+        self.canvas.draw_point(Point::new(x + 3, y + 2)).ok();
+        self.canvas.draw_point(Point::new(x + 2, y + 3)).ok();
+        self.canvas.draw_point(Point::new(x + 9, y + 2)).ok();
+        self.canvas.draw_point(Point::new(x + 8, y + 2)).ok();
+        self.canvas.draw_point(Point::new(x + 9, y + 3)).ok();
+        self.canvas.draw_point(Point::new(x + 2, y + 9)).ok();
+        self.canvas.draw_point(Point::new(x + 3, y + 9)).ok();
+        self.canvas.draw_point(Point::new(x + 2, y + 8)).ok();
+        self.canvas.draw_point(Point::new(x + 9, y + 9)).ok();
+        self.canvas.draw_point(Point::new(x + 8, y + 9)).ok();
+        self.canvas.draw_point(Point::new(x + 9, y + 8)).ok();
+
+        // Top button (stopwatch style)
+        self.canvas.draw_line(Point::new(x + 5, y), Point::new(x + 6, y)).ok();
+
+        // Center hub & hands
+        self.canvas.set_draw_color(clock_hands);
+        self.canvas.draw_point(Point::new(x + 5, y + 5)).ok();
+        self.canvas.draw_point(Point::new(x + 4, y + 4)).ok();
+        self.canvas.draw_line(Point::new(x + 6, y + 5), Point::new(x + 8, y + 5)).ok();
+    }
+
+    /// Draws a crisp pixel-art speaker icon (with sound waves or mute slash).
+    pub fn draw_icon_speaker(&mut self, x: i32, y: i32, muted: bool) {
+        let color = if muted {
+            Color::RGB(160, 165, 180)
+        } else {
+            Color::RGB(100, 220, 255)
+        };
+
+        self.canvas.set_draw_color(color);
+        // Speaker base rectangle
+        self.canvas.fill_rect(Rect::new(x, y + 3, 3, 6)).ok();
+
+        // Speaker cone
+        self.canvas.draw_line(Point::new(x + 3, y + 3), Point::new(x + 6, y + 1)).ok();
+        self.canvas.draw_line(Point::new(x + 3, y + 8), Point::new(x + 6, y + 10)).ok();
+        self.canvas.draw_line(Point::new(x + 6, y + 1), Point::new(x + 6, y + 10)).ok();
+        self.canvas.fill_rect(Rect::new(x + 4, y + 2, 2, 8)).ok();
+
+        if !muted {
+            // Sound waves radiating to the right
+            self.canvas.draw_point(Point::new(x + 8, y + 3)).ok();
+            self.canvas.draw_line(Point::new(x + 9, y + 4), Point::new(x + 9, y + 7)).ok();
+            self.canvas.draw_point(Point::new(x + 8, y + 8)).ok();
+
+            self.canvas.draw_point(Point::new(x + 11, y + 2)).ok();
+            self.canvas.draw_line(Point::new(x + 12, y + 3), Point::new(x + 12, y + 8)).ok();
+            self.canvas.draw_point(Point::new(x + 11, y + 9)).ok();
+        } else {
+            // Red diagonal mute slash across right side
+            self.canvas.set_draw_color(Color::RGB(255, 60, 80));
+            self.canvas.draw_line(Point::new(x + 8, y + 2), Point::new(x + 13, y + 9)).ok();
+            self.canvas.draw_line(Point::new(x + 13, y + 2), Point::new(x + 8, y + 9)).ok();
+        }
+    }
+
+    /// Renders a stat pill container in the HUD and returns its width in pixels.
+    fn draw_hud_stat_pill(
+        &mut self,
+        x: i32,
+        y: i32,
+        icon: HudIcon,
+        label: &str,
+        value: &str,
+        label_color: Color,
+        value_color: Color,
+    ) -> i32 {
+        let text_scale = 1u32;
+        let char_w = 6 * text_scale as i32;
+        let char_h = 7 * text_scale as i32;
+        let icon_w = match icon {
+            HudIcon::None => 0,
+            HudIcon::Tile => 12,
+            HudIcon::Heart => 12,
+            HudIcon::Trophy => 13,
+            HudIcon::Lightbulb => 11,
+            HudIcon::Clock => 12,
+        };
+
+        let icon_gap = if icon != HudIcon::None { 7 } else { 0 };
+        let label_w = label.len() as i32 * char_w;
+        let value_w = value.len() as i32 * char_w;
+        let value_gap = if !label.is_empty() { 5 } else { 0 };
+
+        let padding_x = 9;
+        let pill_w = padding_x * 2 + icon_w + icon_gap + label_w + value_gap + value_w;
+        let pill_h = 26;
+        let pill_rect = Rect::new(x, y, pill_w as u32, pill_h as u32);
+
+        // Pill background
+        self.canvas.set_draw_color(Color::RGBA(26, 32, 50, 220));
+        self.canvas.fill_rect(pill_rect).ok();
+
+        // Subtle border
+        self.canvas.set_draw_color(Color::RGB(50, 68, 98));
+        self.canvas.draw_rect(pill_rect).ok();
+
+        let mut cur_x = x + padding_x;
+        let center_y = y + (pill_h as i32 - 12) / 2;
+
+        // Draw icon
+        match icon {
+            HudIcon::None => {}
+            HudIcon::Tile => {
+                self.draw_icon_tile(cur_x, center_y - 1);
+            }
+            HudIcon::Heart => {
+                self.draw_icon_heart(cur_x, center_y);
+            }
+            HudIcon::Trophy => {
+                self.draw_icon_trophy(cur_x, center_y);
+            }
+            HudIcon::Lightbulb => {
+                self.draw_icon_lightbulb(cur_x, center_y - 1);
+            }
+            HudIcon::Clock => {
+                self.draw_icon_clock(cur_x, center_y);
+            }
+        }
+        if icon != HudIcon::None {
+            cur_x += icon_w + icon_gap;
+        }
+
+        let text_y = y + (pill_h as i32 - char_h) / 2;
+
+        // Draw label
+        if !label.is_empty() {
+            self.draw_bitmap_text(label, cur_x, text_y, text_scale, label_color);
+            cur_x += label_w + value_gap;
+        }
+
+        // Draw value
+        self.draw_bitmap_text(value, cur_x, text_y, text_scale, value_color);
+
+        pill_w
+    }
+
+    /// Renders the HUD overlay: branding, phase badge, level, score, lives, hints, tiles, timer, and mute toggle button.
+    pub fn render_hud(&mut self, state: &GameState, muted: bool) {
         let (win_w, _win_h) = self.window_size();
 
         // HUD background bar at the top
         let hud_height: u32 = 40;
         let hud_rect = Rect::new(0, 0, win_w, hud_height);
-        self.canvas.set_draw_color(Color::RGBA(20, 20, 30, 200));
+        self.canvas.set_draw_color(Color::RGBA(18, 22, 36, 240));
         self.canvas.fill_rect(hud_rect).ok();
 
         // Bottom border of HUD
-        self.canvas.set_draw_color(Color::RGB(80, 120, 160));
+        self.canvas.set_draw_color(Color::RGB(45, 60, 90));
         self.canvas.draw_line(
-            sdl2::rect::Point::new(0, hud_height as i32),
-            sdl2::rect::Point::new(win_w as i32, hud_height as i32),
+            Point::new(0, hud_height as i32),
+            Point::new(win_w as i32, hud_height as i32),
         ).ok();
 
-        // Divide the bar into 5 sections
-        let section_w = win_w as i32 / 5;
+        // 1. Left Section: Logo + "xMahjong" + Phase Badge
+        let brand_x = 16;
+        self.draw_icon_tile(brand_x, 13);
+        self.draw_bitmap_text("xMahjong", brand_x + 18, 13, 2, Color::RGB(0, 215, 255));
 
-        // Timer display (section 1 — left) — total across all levels
+        let brand_end_x = brand_x + 18 + (8 * 12); // ~114px
+
+        // Phase badge
+        let phase_name = if state.level <= 10 {
+            "PENGUIN PHASE"
+        } else if state.level <= 20 {
+            "DOG PHASE"
+        } else if state.level <= 50 {
+            "SPACE PHASE"
+        } else if state.level <= 100 {
+            "ENDGAME PHASE"
+        } else {
+            "GRANDMASTER"
+        };
+
+        let mut left_section_end = brand_end_x;
+        if win_w >= 940 {
+            let badge_w = (phase_name.len() as i32 * 6) + 16;
+            let badge_x = brand_end_x + 12;
+            let badge_y = 10;
+            let badge_h = 20;
+            let badge_rect = Rect::new(badge_x, badge_y, badge_w as u32, badge_h as u32);
+
+            self.canvas.set_draw_color(Color::RGBA(15, 65, 95, 180));
+            self.canvas.fill_rect(badge_rect).ok();
+            self.canvas.set_draw_color(Color::RGB(30, 140, 190));
+            self.canvas.draw_rect(badge_rect).ok();
+
+            self.draw_bitmap_text(phase_name, badge_x + 8, badge_y + 6, 1, Color::RGB(100, 225, 255));
+            left_section_end = badge_x + badge_w;
+        }
+
+        // 2. Mute Button on Far Right
+        let mute_rect = Self::hud_mute_button_rect(win_w);
+        self.canvas.set_draw_color(Color::RGBA(26, 32, 50, 220));
+        self.canvas.fill_rect(mute_rect).ok();
+
+        if muted {
+            self.canvas.set_draw_color(Color::RGB(140, 50, 65));
+        } else {
+            self.canvas.set_draw_color(Color::RGB(50, 68, 98));
+        }
+        self.canvas.draw_rect(mute_rect).ok();
+        self.draw_icon_speaker(mute_rect.x() + 9, mute_rect.y() + 7, muted);
+
+        // 3. Compute data for stats pills
+        let total_score = state.base_score + state.score.live_score();
+        let lives = state.shuffles_remaining;
+        let total_hints = state.base_hints + state.score.hints_used;
+        let remaining_tiles = state.board.tiles.iter().filter(|t| t.is_some()).count();
+        let total_tiles = crate::levels::tiles_for_level(state.level);
+
         let total_ms = state.base_time_ms + state.timer.elapsed_ms
             + state.timer.last_tick.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0);
         let total_secs = (total_ms / 1000) as u32;
         let minutes = total_secs / 60;
         let seconds = total_secs % 60;
         let timer_text = format!("{:02}:{:02}", minutes, seconds);
-        let timer_w = timer_text.len() as i32 * 12;
-        let timer_x = (section_w - timer_w) / 2;
-        self.draw_bitmap_text(&timer_text, timer_x, 12, 2, Color::RGB(100, 220, 100));
 
-        // Score display (section 2) — total across all levels
-        let total_score = state.base_score + state.score.live_score();
-        let score_text = format!("SCORE {}", total_score);
-        let score_w = score_text.len() as i32 * 12;
-        let score_x = section_w + (section_w - score_w) / 2;
-        self.draw_bitmap_text(&score_text, score_x, 12, 2, Color::RGB(255, 215, 0));
+        let label_col = Color::RGB(170, 190, 215);
 
-        // Level display (section 3 — center)
-        let level_text = format!("LEVEL {}", state.level);
-        let level_w = level_text.len() as i32 * 12;
-        let level_x = section_w * 2 + (section_w - level_w) / 2;
-        self.draw_bitmap_text(&level_text, level_x, 12, 2, Color::RGB(200, 150, 255));
+        let pills: [(HudIcon, &str, String, Color, Color); 6] = [
+            (HudIcon::None, "Level:", format!("{}", state.level), label_col, Color::RGB(140, 210, 255)),
+            (HudIcon::Trophy, "Score:", format!("{}", total_score), label_col, Color::RGB(255, 215, 0)),
+            (HudIcon::Heart, "Lives:", format!("{}", lives), label_col, Color::RGB(80, 240, 130)),
+            (HudIcon::Lightbulb, "Hints:", format!("{}", total_hints), label_col, Color::RGB(0, 215, 255)),
+            (HudIcon::Tile, "Tiles:", format!("{}/{}", remaining_tiles, total_tiles), label_col, Color::RGB(0, 215, 255)),
+            (HudIcon::Clock, "Time:", timer_text, label_col, Color::RGB(100, 230, 255)),
+        ];
 
-        // Hints used (section 4) — total across all levels
-        let total_hints = state.base_hints + state.score.hints_used;
-        let hints_text = format!("HINTS {}", total_hints);
-        let hints_w = hints_text.len() as i32 * 12;
-        let hints_x = section_w * 3 + (section_w - hints_w) / 2;
-        self.draw_bitmap_text(&hints_text, hints_x, 12, 2, Color::RGB(0, 200, 200));
+        // Helper to compute pill width
+        let calc_pill_w = |icon: HudIcon, label: &str, value: &str| -> i32 {
+            let icon_w = match icon {
+                HudIcon::None => 0,
+                HudIcon::Tile => 12,
+                HudIcon::Heart => 12,
+                HudIcon::Trophy => 13,
+                HudIcon::Lightbulb => 11,
+                HudIcon::Clock => 12,
+            };
+            let icon_gap = if icon != HudIcon::None { 7 } else { 0 };
+            let label_w = label.len() as i32 * 6;
+            let value_w = value.len() as i32 * 6;
+            let value_gap = if !label.is_empty() { 5 } else { 0 };
+            18 + icon_w + icon_gap + label_w + value_gap + value_w
+        };
 
-        // Shuffles remaining (section 5 — right)
-        let shuffle_text = format!("SHUFFLE {}", state.shuffles_remaining);
-        let shuffle_w = shuffle_text.len() as i32 * 12;
-        let shuffle_x = section_w * 4 + (section_w - shuffle_w) / 2;
-        self.draw_bitmap_text(&shuffle_text, shuffle_x, 12, 2, Color::RGB(100, 150, 255));
+        let pill_widths: Vec<i32> = pills.iter().map(|(icon, lbl, val, _, _)| calc_pill_w(*icon, lbl, val)).collect();
+        let gap: i32 = if win_w >= 1200 { 10 } else { 6 };
+        let total_pills_w: i32 = pill_widths.iter().sum::<i32>() + gap * (pills.len() as i32 - 1);
+
+        let mute_btn_space = 34 + 10;
+        let start_x = (win_w as i32 - mute_btn_space - total_pills_w - 14).max(left_section_end + 12);
+        let pill_y = 7;
+
+        let mut current_x = start_x;
+        for (icon, label, value, l_col, v_col) in &pills {
+            let w = self.draw_hud_stat_pill(current_x, pill_y, *icon, label, value, *l_col, *v_col);
+            current_x += w + gap;
+        }
+    }
+
+    /// Returns the bounding Rect of the HUD mute button for hit-testing.
+    pub fn hud_mute_button_rect(win_w: u32) -> Rect {
+        let btn_w = 34;
+        let btn_h = 26;
+        let btn_x = win_w as i32 - btn_w - 14;
+        let btn_y = 7;
+        Rect::new(btn_x, btn_y, btn_w as u32, btn_h as u32)
     }
 
     /// Renders a small, clickable "MENU" button in the bottom-left corner of the screen.
@@ -3856,7 +4233,33 @@ impl Renderer {
 /// Each element is a u8 where bits 4..0 represent pixels left-to-right.
 /// Returns None for unsupported characters.
 fn bitmap_glyph(ch: char) -> Option<&'static [u8; 7]> {
-    match ch.to_ascii_uppercase() {
+    match ch {
+        'a' => Some(&[0b00000, 0b01110, 0b00001, 0b01111, 0b10001, 0b10011, 0b01101]),
+        'b' => Some(&[0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b10001, 0b11110]),
+        'c' => Some(&[0b00000, 0b00000, 0b01110, 0b10000, 0b10000, 0b10001, 0b01110]),
+        'd' => Some(&[0b00001, 0b00001, 0b01101, 0b10011, 0b10001, 0b10001, 0b01111]),
+        'e' => Some(&[0b00000, 0b00000, 0b01110, 0b10001, 0b11111, 0b10000, 0b01110]),
+        'f' => Some(&[0b00110, 0b01001, 0b01000, 0b11110, 0b01000, 0b01000, 0b01000]),
+        'g' => Some(&[0b00000, 0b01111, 0b10001, 0b10001, 0b01111, 0b00001, 0b01110]),
+        'h' => Some(&[0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b10001, 0b10001]),
+        'i' => Some(&[0b00100, 0b00000, 0b01100, 0b00100, 0b00100, 0b00100, 0b01110]),
+        'j' => Some(&[0b00010, 0b00000, 0b00110, 0b00010, 0b00010, 0b10010, 0b01100]),
+        'k' => Some(&[0b10000, 0b10000, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010]),
+        'l' => Some(&[0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110]),
+        'm' => Some(&[0b00000, 0b00000, 0b11010, 0b10101, 0b10101, 0b10001, 0b10001]),
+        'n' => Some(&[0b00000, 0b00000, 0b11110, 0b10001, 0b10001, 0b10001, 0b10001]),
+        'o' => Some(&[0b00000, 0b00000, 0b01110, 0b10001, 0b10001, 0b10001, 0b01110]),
+        'p' => Some(&[0b00000, 0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000]),
+        'q' => Some(&[0b00000, 0b01111, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001]),
+        'r' => Some(&[0b00000, 0b00000, 0b10110, 0b11001, 0b10000, 0b10000, 0b10000]),
+        's' => Some(&[0b00000, 0b00000, 0b01111, 0b10000, 0b01110, 0b00001, 0b11110]),
+        't' => Some(&[0b01000, 0b01000, 0b11110, 0b01000, 0b01000, 0b01001, 0b00110]),
+        'u' => Some(&[0b00000, 0b00000, 0b10001, 0b10001, 0b10001, 0b10011, 0b01101]),
+        'v' => Some(&[0b00000, 0b00000, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100]),
+        'w' => Some(&[0b00000, 0b00000, 0b10001, 0b10101, 0b10101, 0b11011, 0b01010]),
+        'x' => Some(&[0b00000, 0b00000, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001]),
+        'y' => Some(&[0b00000, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110]),
+        'z' => Some(&[0b00000, 0b00000, 0b11111, 0b00010, 0b00100, 0b01000, 0b11111]),
         'A' => Some(&[0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001]),
         'B' => Some(&[0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110]),
         'C' => Some(&[0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110]),

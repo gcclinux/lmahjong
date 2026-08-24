@@ -15,17 +15,25 @@ Example
 ### Features
 
 - 1000 Levels across 5 phases (Penguin, Dog, Space, Endgame, and Grandmaster Mixed)
+- Modern top status bar (HUD) featuring brand logo, phase indicator, stat pills with custom pixel-art icons, and top-right audio mute button:
+  - 🀄 **Brand & Phase**: `xMahjong` logo and current level phase badge
+  - 🏆 **Score**: Live score with golden trophy icon
+  - ❤️ **Lives**: Available lives (shuffles) with red heart icon
+  - 💡 **Hints**: Hints counter with glowing yellow lightbulb icon
+  - 🀄 **Tiles Count**: Live countdown of remaining / total tiles (e.g. `120/120` counting down)
+  - ⏱️ **Timer**: Elapsed game timer with clock icon
+  - 🔊 / 🔇 **Mute Button**: One-click audio mute toggle in the top-right corner
 - Level Select screen to browse, choose, and replay any completed or unlocked level
 - 4 rich tile theme packs: Tux Penguins, Puppies, Space, and Ocean (200 unique tile face graphics)
 - Classic Turtle layout with 144 tiles across 5 layers
 - Guaranteed solvable boards via reverse-deal generation
-- Hint system, undo (up to 10 moves), and progressive shuffle system
+- Hint system, undo (up to 10 moves), and progressive lives / shuffle system
 - Timer and scoring system with local leaderboard (top 10)
 - Keyboard shortcuts for all actions
-- Audio feedback with mute support
-- Resizable window (min 1920×1080, adapts to screen resolution)
-- Native Linux packages (.deb, .rpm, AppImage)
-- Daily new free Shuffle +1
+- Crisp audio sound effects with mute support (tile selection click, deselection, electric lightning zap pair match, error buzz, victory fanfare, shuffle roll)
+- Resizable window (min 800×600, adapts to screen resolution)
+- Native Linux packages (.deb, .rpm, AppImage), Windows installers (portable, MSI, MSIX), and macOS builds
+- Daily new free Life / Shuffle +1
 
 ![Game Over - Shuffle](assets/shuffles.png)
 
