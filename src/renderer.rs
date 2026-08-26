@@ -213,6 +213,9 @@ pub struct LayoutMetrics {
 }
 
 /// Height of the HUD bar in pixels (timer, score, shuffle display).
+#[cfg(target_os = "linux")]
+pub const HUD_BAR_HEIGHT: u32 = 52;
+#[cfg(not(target_os = "linux"))]
 pub const HUD_BAR_HEIGHT: u32 = 40;
 
 /// Returns the bounding Rect of the HUD mute button for hit-testing.
@@ -220,7 +223,7 @@ pub fn hud_mute_button_rect(win_w: u32) -> Rect {
     let btn_w = 34;
     let btn_h = 26;
     let btn_x = win_w as i32 - btn_w - 14;
-    let btn_y = 7;
+    let btn_y = (HUD_BAR_HEIGHT as i32 - btn_h) / 2;
     Rect::new(btn_x, btn_y, btn_w as u32, btn_h as u32)
 }
 
@@ -1536,6 +1539,10 @@ impl Renderer {
         ));
         self.canvas.draw_rect(btn).ok();
 
+        // Uppercase the label for consistent button styling
+        let upper_label = label.to_uppercase();
+        let label = &upper_label;
+
         // Draw the label text centered within the button
         let text_scale = if self.text_width(label, 2) <= width.saturating_sub(12) {
             2u32
@@ -1772,6 +1779,9 @@ impl Renderer {
         label_color: Color,
         value_color: Color,
     ) -> i32 {
+        #[cfg(target_os = "linux")]
+        let text_scale = 2u32;
+        #[cfg(not(target_os = "linux"))]
         let text_scale = 1u32;
         let char_w = 6 * text_scale as i32;
         let char_h = 7 * text_scale as i32;
@@ -1791,7 +1801,10 @@ impl Renderer {
 
         let padding_x = 9;
         let pill_w = padding_x * 2 + icon_w + icon_gap + label_w + value_gap + value_w;
-        let pill_h = 26;
+        #[cfg(target_os = "linux")]
+        let pill_h = 34i32;
+        #[cfg(not(target_os = "linux"))]
+        let pill_h = 26i32;
         let pill_rect = Rect::new(x, y, pill_w as u32, pill_h as u32);
 
         // Pill background
@@ -1847,7 +1860,7 @@ impl Renderer {
         let (win_w, _win_h) = self.window_size();
 
         // HUD background bar at the top
-        let hud_height: u32 = 40;
+        let hud_height: u32 = HUD_BAR_HEIGHT;
         let hud_rect = Rect::new(0, 0, win_w, hud_height);
         self.canvas.set_draw_color(Color::RGBA(18, 22, 36, 240));
         self.canvas.fill_rect(hud_rect).ok();
@@ -1861,8 +1874,9 @@ impl Renderer {
 
         // 1. Left Section: Logo + "xMahjong" + Phase Badge
         let brand_x = 16;
-        self.draw_icon_tile(brand_x, 13);
-        self.draw_bitmap_text("xMahjong", brand_x + 18, 13, 2, Color::RGB(0, 215, 255));
+        let brand_y = (hud_height as i32 - 14) / 2;
+        self.draw_icon_tile(brand_x, brand_y);
+        self.draw_bitmap_text("xMahjong", brand_x + 18, brand_y, 2, Color::RGB(0, 215, 255));
 
         let brand_end_x = brand_x + 18 + (8 * 12); // ~114px
 
@@ -1884,8 +1898,8 @@ impl Renderer {
             let char_count = phase_name.chars().count() as i32;
             let badge_w = (char_count * 6) + 16;
             let badge_x = brand_end_x + 12;
-            let badge_y = 10;
             let badge_h = 20;
+            let badge_y = (hud_height as i32 - badge_h) / 2;
             let badge_rect = Rect::new(badge_x, badge_y, badge_w as u32, badge_h as u32);
 
             self.canvas.set_draw_color(Color::RGBA(15, 65, 95, 180));
@@ -1944,6 +1958,10 @@ impl Renderer {
 
         // Helper to compute pill width
         let calc_pill_w = |icon: HudIcon, label: &str, value: &str| -> i32 {
+            #[cfg(target_os = "linux")]
+            let char_w: i32 = 12;
+            #[cfg(not(target_os = "linux"))]
+            let char_w: i32 = 6;
             let icon_w = match icon {
                 HudIcon::None => 0,
                 HudIcon::Tile => 12,
@@ -1953,8 +1971,8 @@ impl Renderer {
                 HudIcon::Clock => 12,
             };
             let icon_gap = if icon != HudIcon::None { 7 } else { 0 };
-            let label_w = label.chars().count() as i32 * 6;
-            let value_w = value.chars().count() as i32 * 6;
+            let label_w = label.chars().count() as i32 * char_w;
+            let value_w = value.chars().count() as i32 * char_w;
             let value_gap = if !label.is_empty() { 5 } else { 0 };
             18 + icon_w + icon_gap + label_w + value_gap + value_w
         };
@@ -1965,7 +1983,10 @@ impl Renderer {
 
         let mute_btn_space = 34 + 10;
         let start_x = (win_w as i32 - mute_btn_space - total_pills_w - 14).max(left_section_end + 12);
-        let pill_y = 7;
+        #[cfg(target_os = "linux")]
+        let pill_y = (hud_height as i32 - 34) / 2;
+        #[cfg(not(target_os = "linux"))]
+        let pill_y = (hud_height as i32 - 26) / 2;
 
         let mut current_x = start_x;
         for (icon, label, value, l_col, v_col) in &pills {
@@ -1979,7 +2000,7 @@ impl Renderer {
         let btn_w = 34;
         let btn_h = 26;
         let btn_x = win_w as i32 - btn_w - 14;
-        let btn_y = 7;
+        let btn_y = (HUD_BAR_HEIGHT as i32 - btn_h) / 2;
         Rect::new(btn_x, btn_y, btn_w as u32, btn_h as u32)
     }
 
@@ -2177,7 +2198,11 @@ impl Renderer {
         self.draw_overlay_backdrop();
 
         let dialog_h: u32 = if level < 1000 { 360 } else { 300 };
-        let dialog = self.draw_dialog_box(360, dialog_h);
+        #[cfg(target_os = "linux")]
+        let dialog_w: u32 = 420;
+        #[cfg(not(target_os = "linux"))]
+        let dialog_w: u32 = 360;
+        let dialog = self.draw_dialog_box(dialog_w, dialog_h);
 
         let lvl_str = level.to_string();
         let max_str = "1000".to_string();
@@ -2216,6 +2241,9 @@ impl Renderer {
             Color::RGB(255, 200, 50),
         );
 
+        #[cfg(target_os = "linux")]
+        let btn_w: u32 = 300;
+        #[cfg(not(target_os = "linux"))]
         let btn_w: u32 = 240;
         let btn_h: u32 = 44;
         let btn_x = dialog.x() + ((dialog.width() - btn_w) / 2) as i32;
