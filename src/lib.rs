@@ -31,3 +31,6 @@ pub mod game_state;
 
 /// Level system: tile count and face pool computation per level.
 pub mod levels;
+
+/// Internationalization: multi-language translations and localization.
+pub mod i18n;

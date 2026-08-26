@@ -250,7 +250,8 @@ fn main() {
 
     // 4. Active username and settings
     let mut current_user_name = String::new();
-    let mut settings = Settings::default();
+    let mut settings = Settings::load("");
+    audio.set_mute(settings.muted);
 
     // 5. Create InputHandler
     let input_handler = InputHandler::new();
@@ -285,7 +286,7 @@ fn main() {
     let mut stats_saved_toast: Option<Instant> = None;
     // Track the currently selected menu item in the pause menu (0-indexed)
     let mut pause_menu_selection: usize = 0;
-    const PAUSE_MENU_ITEM_COUNT: usize = 11;
+    const PAUSE_MENU_ITEM_COUNT: usize = 12;
     // Track level select page (0-indexed, 25 levels per page) and chosen level (1..=1000)
     let mut level_select_page: usize = 0;
     let mut level_select_chosen: u32 = 1;
@@ -635,10 +636,17 @@ fn main() {
                                     };
                                 }
                                 8 => {
+                                    // LANGUAGE toggle
+                                    settings.language = settings.language.next();
+                                    if !dev_mode.enabled {
+                                        settings.save(&current_user_name);
+                                    }
+                                }
+                                9 => {
                                     // ABOUT — open website in default browser
                                     let _ = open::that(ABOUT_URL);
                                 }
-                                9 => {
+                                10 => {
                                     // SWITCH USER
                                     if !dev_mode.enabled {
                                         save_current_game(&game_state, &current_user_name);
@@ -648,7 +656,7 @@ fn main() {
                                     game_state.status = GameStatus::NameEntry;
                                     pause_menu_selection = 0;
                                 }
-                                10 => {
+                                11 => {
                                     // SAVE + QUIT
                                     if !dev_mode.enabled {
                                         save_current_game(&game_state, &current_user_name);
@@ -1160,15 +1168,15 @@ fn main() {
                         } else if game_state.status == GameStatus::Paused {
                             // Handle clicks on pause menu buttons
                             let (win_w, win_h) = renderer.window_size();
-                            let dialog_w: u32 = 300;
-                            let dialog_h: u32 = 610;
+                            let dialog_w: u32 = 340;
+                            let dialog_h: u32 = 650;
                             let dialog_x = (win_w.saturating_sub(dialog_w)) / 2;
                             let dialog_y = (win_h.saturating_sub(dialog_h)) / 2;
 
-                            let btn_w: u32 = 220;
+                            let btn_w: u32 = 260;
                             let btn_h: u32 = 36;
                             let btn_x = dialog_x as i32 + ((dialog_w - btn_w) / 2) as i32;
-                            let start_y = dialog_y as i32 + 52;
+                            let start_y = dialog_y as i32 + 50;
                             let spacing: i32 = 44;
 
                             // Check which button was clicked
@@ -1224,9 +1232,15 @@ fn main() {
                                         Difficulty::Normal => Difficulty::Easy,
                                     };
                                 } else if y >= start_y + spacing * 8 && y < start_y + spacing * 8 + btn_h as i32 {
+                                    // LANGUAGE toggle
+                                    settings.language = settings.language.next();
+                                    if !dev_mode.enabled {
+                                        settings.save(&current_user_name);
+                                    }
+                                } else if y >= start_y + spacing * 9 && y < start_y + spacing * 9 + btn_h as i32 {
                                     // ABOUT — open website in default browser
                                     let _ = open::that(ABOUT_URL);
-                                } else if y >= start_y + spacing * 9 && y < start_y + spacing * 9 + btn_h as i32 {
+                                } else if y >= start_y + spacing * 10 && y < start_y + spacing * 10 + btn_h as i32 {
                                     // SWITCH USER
                                     if !dev_mode.enabled {
                                         save_current_game(&game_state, &current_user_name);
@@ -1235,7 +1249,7 @@ fn main() {
                                     name_entry = Some(NameEntryState::new(0, 0, 0, 0, 0));
                                     game_state.status = GameStatus::NameEntry;
                                     pause_menu_selection = 0;
-                                } else if y >= start_y + spacing * 10 && y < start_y + spacing * 10 + btn_h as i32 {
+                                } else if y >= start_y + spacing * 11 && y < start_y + spacing * 11 + btn_h as i32 {
                                     // SAVE + QUIT
                                     if !dev_mode.enabled {
                                         save_current_game(&game_state, &current_user_name);
@@ -1786,8 +1800,8 @@ fn main() {
         match game_state.status {
             GameStatus::Playing => {
                 renderer.render_board(&game_state, layout_rect);
-                renderer.render_hud(&game_state, audio.is_muted());
-                let _ = renderer.render_menu_button();
+                renderer.render_hud(&game_state, audio.is_muted(), settings.language);
+                let _ = renderer.render_menu_button(settings.language);
 
                 // Show hint suggestion after inactivity
                 if !show_hint_suggestion
@@ -1796,27 +1810,27 @@ fn main() {
                     show_hint_suggestion = true;
                 }
                 if show_hint_suggestion {
-                    renderer.render_hint_suggestion();
+                    renderer.render_hint_suggestion(settings.language);
                 }
             }
             GameStatus::Paused => {
                 renderer.render_board(&game_state, layout_rect);
-                renderer.render_hud(&game_state, audio.is_muted());
+                renderer.render_hud(&game_state, audio.is_muted(), settings.language);
                 let diff_str = match game_state.difficulty {
                     Difficulty::Easy => "EASY",
                     Difficulty::Normal => "NORMAL",
                 };
-                renderer.render_menu(pause_menu_selection, diff_str);
+                renderer.render_menu(pause_menu_selection, diff_str, settings.language);
             }
             GameStatus::Won => {
                 renderer.render_board(&game_state, layout_rect);
                 let time_str = game_state.timer.format_display();
                 let score = game_state.base_score + game_state.score.calculate_score();
-                renderer.render_victory(&time_str, score, game_state.level, victory_menu_selection);
+                renderer.render_victory(&time_str, score, game_state.level, victory_menu_selection, settings.language);
             }
             GameStatus::Lost => {
                 renderer.render_board(&game_state, layout_rect);
-                renderer.render_no_moves(lost_menu_selection);
+                renderer.render_no_moves(lost_menu_selection, settings.language);
             }
             GameStatus::GameOver => {
                 renderer.render_board(&game_state, layout_rect);
@@ -1825,34 +1839,34 @@ fn main() {
                 let time_seconds = (total_time_ms / 1000) as u32;
                 let hints_used = game_state.base_hints + game_state.score.hints_used;
                 let shuffles_used = game_state.base_shuffles + game_state.score.shuffles_used;
-                renderer.render_game_over(score, time_seconds, hints_used, shuffles_used, game_state.level, game_over_menu_selection);
+                renderer.render_game_over(score, time_seconds, hints_used, shuffles_used, game_state.level, game_over_menu_selection, settings.language);
             }
             GameStatus::Menu => {
                 let diff_str = match game_state.difficulty {
                     Difficulty::Easy => "EASY",
                     Difficulty::Normal => "NORMAL",
                 };
-                renderer.render_menu(pause_menu_selection, diff_str);
+                renderer.render_menu(pause_menu_selection, diff_str, settings.language);
             }
             GameStatus::NameEntry => {
                 renderer.render_board(&game_state, layout_rect);
                 if let Some(ref entry) = name_entry {
-                    renderer.render_name_entry(entry);
+                    renderer.render_name_entry(entry, settings.language);
                 }
             }
             GameStatus::Leaderboard => {
                 renderer.render_board(&game_state, layout_rect);
                 let is_saved_active = stats_saved_toast.map(|t| t.elapsed() < Duration::from_secs(2)).unwrap_or(false);
-                renderer.render_leaderboard(&current_user_name, is_saved_active);
+                renderer.render_leaderboard(&current_user_name, is_saved_active, settings.language);
             }
             GameStatus::Shortcuts => {
                 renderer.render_board(&game_state, layout_rect);
-                renderer.render_shortcuts();
+                renderer.render_shortcuts(settings.language);
             }
             GameStatus::LevelSelect => {
                 renderer.render_board(&game_state, layout_rect);
                 let user_progress = UserProgress::load_and_sync(&current_user_name, game_state.level);
-                renderer.render_level_select(&current_user_name, &user_progress, level_select_page, level_select_chosen);
+                renderer.render_level_select(&current_user_name, &user_progress, level_select_page, level_select_chosen, settings.language);
             }
         }
 
@@ -1864,13 +1878,13 @@ fn main() {
         }
 
         if let Some(streak) = daily_streak_achievement {
-            renderer.render_daily_streak_popup(streak);
+            renderer.render_daily_streak_popup(streak, settings.language);
         } else if quit_confirmation {
-            renderer.render_quit_confirmation();
+            renderer.render_quit_confirmation(settings.language);
         }
 
         if let Some(ref info) = update_info {
-            renderer.render_update_dialog(CURRENT_VERSION, &info.latest_version);
+            renderer.render_update_dialog(CURRENT_VERSION, &info.latest_version, settings.language);
         }
 
         // --- 7g. Present frame ---

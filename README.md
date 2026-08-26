@@ -23,6 +23,20 @@ Example
   - 🀄 **Tiles Count**: Live countdown of remaining / total tiles (e.g. `120/120` counting down)
   - ⏱️ **Timer**: Elapsed game timer with clock icon
   - 🔊 / 🔇 **Mute Button**: One-click audio mute toggle in the top-right corner
+- 12 Supported Languages with full localized UI across all dialogs, HUD, trophies, and menus:
+  - 🇬🇧 English (`EN`)
+  - 🇪🇸 Spanish (`ES` / Español)
+  - 🇫🇷 French (`FR` / Français)
+  - 🇩🇪 German (`DE` / Deutsch)
+  - 🇮🇹 Italian (`IT` / Italiano)
+  - 🇧🇷 Portuguese (`PT` / Português do Brasil)
+  - 🇳🇱 Dutch (`NL` / Nederlands)
+  - 🇵🇱 Polish (`PL` / Polski)
+  - 🇹🇷 Turkish (`TR` / Türkçe)
+  - 🇮🇳 Tamil (`TA` / தமிழ்)
+  - 🇯🇵 Japanese (`JA` / 日本語)
+  - 🇨🇳 Chinese (`ZH` / 简体中文)
+- Dynamic Language Switcher in the Pause Menu (`Esc` / `Ctrl+P`) with automatic system locale detection and persistent preference saving
 - Level Select screen to browse, choose, and replay any completed or unlocked level
 - 4 rich tile theme packs: Tux Penguins, Puppies, Space, and Ocean (200 unique tile face graphics)
 - Classic Turtle layout with 144 tiles across 5 layers
@@ -36,6 +50,27 @@ Example
 - Daily new free Life / Shuffle +1
 
 ![Game Over - Shuffle](assets/shuffles.png)
+
+## Supported Languages (i18n)
+
+xMahjong provides comprehensive multi-language support (12 languages):
+
+| Code | Language | Native Name | Region |
+|------|----------|-------------|--------|
+| `EN` | English | English | Default / Global |
+| `ES` | Spanish | Español | Spain / Latin America |
+| `FR` | French | Français | France / Francophone |
+| `DE` | German | Deutsch | Germany / Austria / Switzerland |
+| `IT` | Italian | Italiano | Italy |
+| `PT` | Portuguese | Português | Brazil (pt-BR) |
+| `NL` | Dutch | Nederlands | Netherlands / Belgium |
+| `PL` | Polish | Polski | Poland |
+| `TR` | Turkish | Türkçe | Turkey |
+| `TA` | Tamil | தமிழ் | India / Sri Lanka / Singapore |
+| `JA` | Japanese | 日本語 | Japan |
+| `ZH` | Chinese | 简体中文 | Simplified Chinese |
+
+Language can be switched at any time from the in-game Pause Menu (`Esc` or `Ctrl+P` -> `LANGUAGE: <CODE>`) or will automatically follow your operating system locale.
 
 ## Prerequisites
 

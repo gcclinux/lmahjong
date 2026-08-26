@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use crate::i18n::Language;
+
 /// Sanitizes a username string so it can be safely used as a directory name.
 pub fn sanitize_user_name(user_name: &str) -> String {
     let trimmed = user_name.trim();
@@ -354,41 +356,82 @@ impl TrophyState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub muted: bool,
+    #[serde(default)]
+    pub language: Language,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { muted: false }
+        Self {
+            muted: false,
+            language: Language::detect_system_language(),
+        }
     }
 }
 
 impl Settings {
-    /// Loads user settings from disk. Returns default settings on any read/parse error.
+    /// Loads settings from disk.
+    /// If a username is given, attempts to load from the user's directory first.
+    /// If that fails or user_name is empty, attempts to load the global settings (`base_storage_dir/settings.json`).
+    /// If no file exists, falls back to default settings (system detected language).
     pub fn load(user_name: &str) -> Self {
-        let path = resolve_user_dir(user_name).join("settings.json");
-        match fs::read_to_string(&path) {
-            Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-            Err(_) => Self::default(),
-        }
-    }
-
-    /// Saves settings to disk for a specific user.
-    /// Creates directories as needed. Logs errors to stderr but does not crash.
-    pub fn save(&self, user_name: &str) {
-        let dir = storage_dir_for_user(user_name);
-        if let Err(e) = fs::create_dir_all(&dir) {
-            eprintln!("xmahjong: failed to create storage directory {:?}: {}", dir, e);
-            return;
-        }
-        let path = dir.join("settings.json");
-        match serde_json::to_string_pretty(self) {
-            Ok(json) => {
-                if let Err(e) = fs::write(&path, json) {
-                    eprintln!("xmahjong: failed to write settings to {:?}: {}", path, e);
+        if !user_name.is_empty() {
+            let path = resolve_user_dir(user_name).join("settings.json");
+            if let Ok(contents) = fs::read_to_string(&path) {
+                if let Ok(settings) = serde_json::from_str(&contents) {
+                    return settings;
                 }
             }
-            Err(e) => {
-                eprintln!("xmahjong: failed to serialize settings: {}", e);
+        }
+
+        // Try global settings
+        let global_path = base_storage_dir().join("settings.json");
+        if let Ok(contents) = fs::read_to_string(&global_path) {
+            if let Ok(settings) = serde_json::from_str(&contents) {
+                return settings;
+            }
+        }
+
+        // If any user has saved settings, pick the first valid one as fallback
+        if let Ok(entries) = fs::read_dir(base_storage_dir()) {
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    let user_settings_path = entry.path().join("settings.json");
+                    if let Ok(contents) = fs::read_to_string(&user_settings_path) {
+                        if let Ok(settings) = serde_json::from_str(&contents) {
+                            return settings;
+                        }
+                    }
+                }
+            }
+        }
+
+        Self::default()
+    }
+
+    /// Saves settings to disk for a specific user and updates global settings.
+    /// Creates directories as needed. Logs errors to stderr but does not crash.
+    pub fn save(&self, user_name: &str) {
+        if !user_name.is_empty() {
+            let dir = storage_dir_for_user(user_name);
+            if let Err(e) = fs::create_dir_all(&dir) {
+                eprintln!("xmahjong: failed to create storage directory {:?}: {}", dir, e);
+            } else {
+                let path = dir.join("settings.json");
+                if let Ok(json) = serde_json::to_string_pretty(self) {
+                    if let Err(e) = fs::write(&path, json) {
+                        eprintln!("xmahjong: failed to write settings to {:?}: {}", path, e);
+                    }
+                }
+            }
+        }
+
+        // Also save globally so startup screens immediately use the preferred settings
+        let global_dir = base_storage_dir();
+        if fs::create_dir_all(&global_dir).is_ok() {
+            let global_path = global_dir.join("settings.json");
+            if let Ok(json) = serde_json::to_string_pretty(self) {
+                let _ = fs::write(&global_path, json);
             }
         }
     }

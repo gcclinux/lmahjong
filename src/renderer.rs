@@ -14,6 +14,7 @@ use sdl2::video::{Window, WindowContext};
 
 use crate::board::TilePosition;
 use crate::game_state::{Animation, GameState, NameEntryState};
+use crate::i18n::{self, Language};
 use crate::storage::{Leaderboard, ShuffleState, TrophyState, UserProgress};
 
 /// Number of distinct tile face images per style.
@@ -1297,21 +1298,134 @@ impl Renderer {
         (tile_w, tile_h, x_offset, y_offset)
     }
 
-    /// Loads a font from the assets directory at the given point size.
-    /// Returns None if the font file is not found.
-    pub fn load_font(&self, point_size: u16) -> Option<sdl2::ttf::Font<'_, 'static>> {
+    /// Loads the best matching font for the given text (Tamil, Japanese, Chinese, or Latin)
+    /// from the assets directory or system paths at the given point size.
+    pub fn load_font_for_text(&self, text: &str, point_size: u16) -> Option<sdl2::ttf::Font<'_, 'static>> {
+        let is_tamil = text.chars().any(|ch| ('\u{0B80}'..='\u{0BFF}').contains(&ch));
+        let is_japanese = text.chars().any(|ch| ('\u{3040}'..='\u{309F}').contains(&ch) || ('\u{30A0}'..='\u{30FF}').contains(&ch));
+        let is_cjk = text.chars().any(|ch| {
+            ('\u{4E00}'..='\u{9FFF}').contains(&ch)
+                || ('\u{3400}'..='\u{4DBF}').contains(&ch)
+                || ('\u{F900}'..='\u{FAFF}').contains(&ch)
+                || ('\u{3000}'..='\u{303F}').contains(&ch)
+                || ('\u{FF00}'..='\u{FFEF}').contains(&ch)
+        });
+
+        let mut candidate_paths = Vec::new();
         let base = assets_path();
-        let font_path = format!("{}/fonts/default.ttf", base);
-        match self.ttf_context.load_font(&font_path, point_size) {
-            Ok(font) => Some(font),
-            Err(e) => {
-                eprintln!(
-                    "[xMahjong] Warning: Could not load font '{}': {}. Text rendering disabled.",
-                    font_path, e
-                );
-                None
+        candidate_paths.push(format!("{}/fonts/default.ttf", base));
+
+        if is_tamil {
+            candidate_paths.push("C:\\Windows\\Fonts\\Nirmala.ttc".to_string());
+            candidate_paths.push("C:\\Windows\\Fonts\\NirmalaB.ttc".to_string());
+            candidate_paths.push("C:\\Windows\\Fonts\\latha.ttf".to_string());
+            candidate_paths.push("/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf".to_string());
+            candidate_paths.push("/usr/share/fonts/opentype/noto/NotoSansTamil-Regular.otf".to_string());
+            candidate_paths.push("/usr/share/fonts/truetype/lohit-tamil/Lohit-Tamil.ttf".to_string());
+            candidate_paths.push("/System/Library/Fonts/Supplemental/Tamil Sangam MN.ttc".to_string());
+            candidate_paths.push("/System/Library/Fonts/Supplemental/Tamil MN.ttc".to_string());
+            candidate_paths.push("/System/Library/Fonts/Tamil MN.ttc".to_string());
+        } else if is_japanese {
+            candidate_paths.push("C:\\Windows\\Fonts\\msgothic.ttc".to_string());
+            candidate_paths.push("C:\\Windows\\Fonts\\YuGothR.ttc".to_string());
+            candidate_paths.push("C:\\Windows\\Fonts\\YuGothM.ttc".to_string());
+            candidate_paths.push("C:\\Windows\\Fonts\\meiryo.ttc".to_string());
+            candidate_paths.push("C:\\Windows\\Fonts\\msyh.ttc".to_string());
+            candidate_paths.push("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc".to_string());
+            candidate_paths.push("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc".to_string());
+            candidate_paths.push("/usr/share/fonts/truetype/takao-gothic/TakaoPGothic.ttf".to_string());
+            candidate_paths.push("/System/Library/Fonts/Hiragino Sans GB.ttc".to_string());
+        } else if is_cjk {
+            candidate_paths.push("C:\\Windows\\Fonts\\msyh.ttc".to_string());
+            candidate_paths.push("C:\\Windows\\Fonts\\msyhbd.ttc".to_string());
+            candidate_paths.push("C:\\Windows\\Fonts\\simsun.ttc".to_string());
+            candidate_paths.push("C:\\Windows\\Fonts\\simhei.ttf".to_string());
+            candidate_paths.push("C:\\Windows\\Fonts\\msgothic.ttc".to_string());
+            candidate_paths.push("/usr/share/fonts/truetype/noto/NotoSansSC-Regular.otf".to_string());
+            candidate_paths.push("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc".to_string());
+            candidate_paths.push("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc".to_string());
+            candidate_paths.push("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc".to_string());
+            candidate_paths.push("/System/Library/Fonts/PingFang.ttc".to_string());
+            candidate_paths.push("/System/Library/Fonts/Hiragino Sans GB.ttc".to_string());
+        }
+
+        // Fallbacks
+        candidate_paths.push("C:\\Windows\\Fonts\\msyh.ttc".to_string());
+        candidate_paths.push("C:\\Windows\\Fonts\\msgothic.ttc".to_string());
+        candidate_paths.push("C:\\Windows\\Fonts\\Nirmala.ttc".to_string());
+        candidate_paths.push("C:\\Windows\\Fonts\\segoeui.ttf".to_string());
+        candidate_paths.push("C:\\Windows\\Fonts\\arial.ttf".to_string());
+        candidate_paths.push("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf".to_string());
+        candidate_paths.push("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf".to_string());
+        candidate_paths.push("/usr/share/fonts/TTF/DejaVuSans.ttf".to_string());
+        candidate_paths.push("/System/Library/Fonts/SFNS.ttf".to_string());
+        candidate_paths.push("/System/Library/Fonts/Supplemental/Arial.ttf".to_string());
+        candidate_paths.push("/Library/Fonts/Arial.ttf".to_string());
+        candidate_paths.push("/Library/Fonts/Arial Unicode.ttf".to_string());
+
+        for path in &candidate_paths {
+            if std::path::Path::new(path).exists() {
+                if let Ok(font) = self.ttf_context.load_font(path, point_size) {
+                    return Some(font);
+                }
             }
         }
+        None
+    }
+
+    /// Loads a font from the assets directory or system paths at the given point size.
+    /// Returns None if no font file is found.
+    pub fn load_font(&self, point_size: u16) -> Option<sdl2::ttf::Font<'_, 'static>> {
+        self.load_font_for_text("", point_size)
+    }
+
+    /// Returns the pixel width of the text at the given scale factor.
+    pub fn text_width(&self, text: &str, scale: u32) -> u32 {
+        let has_non_bitmap = text.chars().any(|ch| bitmap_glyph(ch).is_none());
+        if has_non_bitmap {
+            let pt_size = (7 * scale).max(11) as u16;
+            if let Some(font) = self.load_font_for_text(text, pt_size) {
+                if let Ok((w, _)) = font.size_of(text) {
+                    return w;
+                }
+            }
+        }
+        text.chars().count() as u32 * 6 * scale
+    }
+
+    /// Draws text using TTF font if non-bitmap characters are present, otherwise uses bitmap font.
+    pub fn draw_text_rendered(&mut self, text: &str, x: i32, y: i32, scale: u32, color: Color) {
+        if text.is_empty() {
+            return;
+        }
+        let has_non_bitmap = text.chars().any(|ch| bitmap_glyph(ch).is_none());
+        if has_non_bitmap {
+            let pt_size = (7 * scale).max(11) as u16;
+            let surface = if let Some(font) = self.load_font_for_text(text, pt_size) {
+                font.render(text).blended(color).ok()
+            } else {
+                None
+            };
+
+            if let Some(surface) = surface {
+                if let Ok(texture) = self.texture_creator.create_texture_from_surface(&surface) {
+                    let w = surface.width();
+                    let h = surface.height();
+                    let dest = Rect::new(x, y, w, h);
+                    if self.canvas.copy(&texture, None, dest).is_ok() {
+                        return;
+                    }
+                }
+            }
+        }
+        self.draw_bitmap_text(text, x, y, scale, color);
+    }
+
+    /// Draws text horizontally centered around `center_x`.
+    pub fn draw_text_centered(&mut self, text: &str, center_x: i32, y: i32, scale: u32, color: Color) {
+        let w = self.text_width(text, scale);
+        let x = center_x - (w as i32) / 2;
+        self.draw_text_rendered(text, x, y, scale, color);
     }
 
     // ─── UI Overlay Rendering ────────────────────────────────────────────────────
@@ -1406,7 +1520,7 @@ impl Renderer {
         }
     }
 
-    /// Draws a labeled button with readable bitmap text.
+    /// Draws a labeled button with readable text, auto-fitting the label nicely.
     fn draw_labeled_button(&mut self, x: i32, y: i32, width: u32, height: u32, color: Color, label: &str) -> Rect {
         let btn = Rect::new(x, y, width, height);
 
@@ -1423,12 +1537,16 @@ impl Renderer {
         self.canvas.draw_rect(btn).ok();
 
         // Draw the label text centered within the button
-        let text_scale = 2u32;
-        let text_w = label.len() as i32 * 6 * text_scale as i32;
-        let text_h = 7 * text_scale as i32;
-        let tx = x + (width as i32 - text_w) / 2;
+        let text_scale = if self.text_width(label, 2) <= width.saturating_sub(12) {
+            2u32
+        } else {
+            1u32
+        };
+        let text_w = self.text_width(label, text_scale);
+        let text_h = (7 * text_scale) as i32;
+        let tx = x + (width as i32 - text_w as i32) / 2;
         let ty = y + (height as i32 - text_h) / 2;
-        self.draw_bitmap_text(label, tx, ty, text_scale, Color::RGB(255, 255, 255));
+        self.draw_text_rendered(label, tx, ty, text_scale, Color::RGB(255, 255, 255));
 
         btn
     }
@@ -1725,7 +1843,7 @@ impl Renderer {
     }
 
     /// Renders the HUD overlay: branding, phase badge, level, score, lives, hints, tiles, timer, and mute toggle button.
-    pub fn render_hud(&mut self, state: &GameState, muted: bool) {
+    pub fn render_hud(&mut self, state: &GameState, muted: bool, lang: Language) {
         let (win_w, _win_h) = self.window_size();
 
         // HUD background bar at the top
@@ -1750,20 +1868,21 @@ impl Renderer {
 
         // Phase badge
         let phase_name = if state.level <= 10 {
-            "PENGUIN PHASE"
+            i18n::t(lang, "phase_penguin")
         } else if state.level <= 20 {
-            "DOG PHASE"
+            i18n::t(lang, "phase_dog")
         } else if state.level <= 50 {
-            "SPACE PHASE"
+            i18n::t(lang, "phase_space")
         } else if state.level <= 100 {
-            "ENDGAME PHASE"
+            i18n::t(lang, "phase_endgame")
         } else {
-            "GRANDMASTER"
+            i18n::t(lang, "phase_grandmaster")
         };
 
         let mut left_section_end = brand_end_x;
         if win_w >= 940 {
-            let badge_w = (phase_name.len() as i32 * 6) + 16;
+            let char_count = phase_name.chars().count() as i32;
+            let badge_w = (char_count * 6) + 16;
             let badge_x = brand_end_x + 12;
             let badge_y = 10;
             let badge_h = 20;
@@ -1774,7 +1893,7 @@ impl Renderer {
             self.canvas.set_draw_color(Color::RGB(30, 140, 190));
             self.canvas.draw_rect(badge_rect).ok();
 
-            self.draw_bitmap_text(phase_name, badge_x + 8, badge_y + 6, 1, Color::RGB(100, 225, 255));
+            self.draw_text_rendered(phase_name, badge_x + 8, badge_y + 6, 1, Color::RGB(100, 225, 255));
             left_section_end = badge_x + badge_w;
         }
 
@@ -1807,13 +1926,20 @@ impl Renderer {
 
         let label_col = Color::RGB(170, 190, 215);
 
+        let label_level = format!("{}:", i18n::t(lang, "level"));
+        let label_score = format!("{}:", i18n::t(lang, "score"));
+        let label_lives = format!("{}:", i18n::t(lang, "lives"));
+        let label_hints = format!("{}:", i18n::t(lang, "hints"));
+        let label_tiles = format!("{}:", i18n::t(lang, "tiles"));
+        let label_time = format!("{}:", i18n::t(lang, "time"));
+
         let pills: [(HudIcon, &str, String, Color, Color); 6] = [
-            (HudIcon::None, "Level:", format!("{}", state.level), label_col, Color::RGB(140, 210, 255)),
-            (HudIcon::Trophy, "Score:", format!("{}", total_score), label_col, Color::RGB(255, 215, 0)),
-            (HudIcon::Heart, "Lives:", format!("{}", lives), label_col, Color::RGB(80, 240, 130)),
-            (HudIcon::Lightbulb, "Hints:", format!("{}", total_hints), label_col, Color::RGB(0, 215, 255)),
-            (HudIcon::Tile, "Tiles:", format!("{}/{}", remaining_tiles, total_tiles), label_col, Color::RGB(0, 215, 255)),
-            (HudIcon::Clock, "Time:", timer_text, label_col, Color::RGB(100, 230, 255)),
+            (HudIcon::None, &label_level, format!("{}", state.level), label_col, Color::RGB(140, 210, 255)),
+            (HudIcon::Trophy, &label_score, format!("{}", total_score), label_col, Color::RGB(255, 215, 0)),
+            (HudIcon::Heart, &label_lives, format!("{}", lives), label_col, Color::RGB(80, 240, 130)),
+            (HudIcon::Lightbulb, &label_hints, format!("{}", total_hints), label_col, Color::RGB(0, 215, 255)),
+            (HudIcon::Tile, &label_tiles, format!("{}/{}", remaining_tiles, total_tiles), label_col, Color::RGB(0, 215, 255)),
+            (HudIcon::Clock, &label_time, timer_text, label_col, Color::RGB(100, 230, 255)),
         ];
 
         // Helper to compute pill width
@@ -1827,8 +1953,8 @@ impl Renderer {
                 HudIcon::Clock => 12,
             };
             let icon_gap = if icon != HudIcon::None { 7 } else { 0 };
-            let label_w = label.len() as i32 * 6;
-            let value_w = value.len() as i32 * 6;
+            let label_w = label.chars().count() as i32 * 6;
+            let value_w = value.chars().count() as i32 * 6;
             let value_gap = if !label.is_empty() { 5 } else { 0 };
             18 + icon_w + icon_gap + label_w + value_gap + value_w
         };
@@ -1858,23 +1984,14 @@ impl Renderer {
     }
 
     /// Renders a small, clickable "MENU" button in the bottom-left corner of the screen.
-    ///
-    /// This provides visual discoverability for the pause menu (ESC key).
-    /// The button is rendered as a compact pill with an "=" hamburger icon,
-    /// the word "MENU", and a subtle "ESC" hint — all in a style consistent
-    /// with the game's pixel-art aesthetic.
-    ///
-    /// On Linux the button is rendered larger for better readability at high DPI.
-    ///
-    /// Returns the bounding Rect of the button for hit-testing.
-    pub fn render_menu_button(&mut self) -> Rect {
+    pub fn render_menu_button(&mut self, lang: Language) -> Rect {
         let (_win_w, win_h) = self.window_size();
 
         // On Linux, use a larger button and font scale for readability
         #[cfg(target_os = "linux")]
-        let (btn_w, btn_h, text_scale, icon_scale): (u32, u32, u32, i32) = (120, 36, 2, 2);
+        let (btn_w, btn_h, text_scale, icon_scale): (u32, u32, u32, i32) = (130, 36, 2, 2);
         #[cfg(not(target_os = "linux"))]
-        let (btn_w, btn_h, text_scale, icon_scale): (u32, u32, u32, i32) = (80, 26, 1, 1);
+        let (btn_w, btn_h, text_scale, icon_scale): (u32, u32, u32, i32) = (90, 26, 1, 1);
 
         let btn_x: i32 = 10;
         let btn_y: i32 = win_h as i32 - btn_h as i32 - 10;
@@ -1911,61 +2028,68 @@ impl Renderer {
         self.canvas.set_draw_color(Color::RGB(80, 130, 130));
         self.canvas.fill_rect(Rect::new(dot_x, icon_center_y - icon_scale, dot_size, dot_size)).ok();
 
-        // "MENU" text (brighter)
+        // Menu text (localized)
         let menu_x = dot_x + dot_size as i32 + 4;
-        self.draw_bitmap_text("MENU", menu_x, text_y, text_scale, Color::RGB(200, 240, 240));
+        let menu_label = i18n::t(lang, "menu");
+        self.draw_text_rendered(menu_label, menu_x, text_y, text_scale, Color::RGB(200, 240, 240));
 
         btn_rect
     }
 
-    /// Renders the pause menu overlay with game options.
-    ///
-    /// Menu items (rendered as placeholder buttons):
-    /// - New Game (green)
-    /// - Undo (blue)
-    /// - Hint (cyan)
-    /// - Shuffle (purple)
-    /// - Levels (purple/magenta)
-    /// - Shortcuts (green)
-    /// - Achievements (blue)
-    /// - Difficulty toggle (teal)
-    /// - About (blue)
-    /// - Switch User (purple)
-    /// - Save + Quit (orange)
-    pub fn render_menu(&mut self, selected: usize, difficulty: &str) {
+    /// Renders the pause menu overlay with game options including dynamic language switcher.
+    pub fn render_menu(&mut self, selected: usize, difficulty: &str, lang: Language) {
         self.draw_overlay_backdrop();
 
-        let dialog = self.draw_dialog_box(300, 610);
+        let dialog = self.draw_dialog_box(340, 650);
 
         // Title
-        self.draw_bitmap_text(
-            "PAUSED",
-            dialog.x() + 100,
+        let paused_title = i18n::t(lang, "paused");
+        let center_x = dialog.x() + dialog.width() as i32 / 2;
+        self.draw_text_centered(
+            paused_title,
+            center_x,
             dialog.y() + 16,
             3,
             Color::RGB(200, 220, 255),
         );
 
-        let btn_w: u32 = 220;
+        let btn_w: u32 = 260;
         let btn_h: u32 = 36;
         let btn_x = dialog.x() + ((dialog.width() - btn_w) / 2) as i32;
-        let start_y = dialog.y() + 52;
+        let start_y = dialog.y() + 50;
         let spacing: i32 = 44;
 
-        let difficulty_label = format!("MODE: {}", difficulty);
+        let diff_display = match difficulty {
+            "easy" | "EASY" => i18n::t(lang, "theme_auto"),
+            _ => difficulty,
+        };
+        let difficulty_label = i18n::t_param(lang, "mode_label", &[("difficulty", diff_display)]);
+        let language_label = i18n::t_param(lang, "language_label", &[("lang", lang.display_label().as_str())]);
+
+        let new_game_str = i18n::t(lang, "new_game");
+        let undo_str = i18n::t(lang, "undo");
+        let hint_str = i18n::t(lang, "hint");
+        let shuffle_str = i18n::t(lang, "shuffle");
+        let levels_str = i18n::t(lang, "levels");
+        let shortcuts_str = i18n::t(lang, "shortcuts");
+        let achievements_str = i18n::t(lang, "achievements");
+        let about_str = i18n::t(lang, "about");
+        let switch_user_str = i18n::t(lang, "switch_user");
+        let save_quit_str = i18n::t(lang, "save_quit");
 
         let buttons: Vec<(Color, &str)> = vec![
-            (Color::RGB(50, 140, 70), "NEW GAME"),
-            (Color::RGB(50, 100, 180), "UNDO"),
-            (Color::RGB(50, 160, 170), "HINT"),
-            (Color::RGB(120, 60, 160), "SHUFFLE"),
-            (Color::RGB(140, 90, 170), "LEVELS"),
-            (Color::RGB(100, 140, 100), "SHORTCUTS"),
-            (Color::RGB(50, 100, 180), "ACHIEVEMENTS"),
+            (Color::RGB(50, 140, 70), new_game_str),
+            (Color::RGB(50, 100, 180), undo_str),
+            (Color::RGB(50, 160, 170), hint_str),
+            (Color::RGB(120, 60, 160), shuffle_str),
+            (Color::RGB(140, 90, 170), levels_str),
+            (Color::RGB(100, 140, 100), shortcuts_str),
+            (Color::RGB(50, 100, 180), achievements_str),
             (Color::RGB(0, 130, 130), &difficulty_label),
-            (Color::RGB(80, 120, 180), "ABOUT"),
-            (Color::RGB(160, 100, 180), "SWITCH USER"),
-            (Color::RGB(200, 130, 50), "SAVE + QUIT"),
+            (Color::RGB(30, 120, 150), &language_label),
+            (Color::RGB(80, 120, 180), about_str),
+            (Color::RGB(160, 100, 180), switch_user_str),
+            (Color::RGB(200, 130, 50), save_quit_str),
         ];
 
         for (i, (color, label)) in buttons.iter().enumerate() {
@@ -1983,56 +2107,59 @@ impl Renderer {
         }
 
         // Shortcut hints at bottom
-        self.draw_bitmap_text(
-            "ESC RESUME  CTRL+S SAVE",
-            dialog.x() + 20,
-            dialog.y() + 580,
+        let bottom_hint = i18n::t(lang, "esc_resume_ctrl_s_save");
+        self.draw_text_centered(
+            bottom_hint,
+            center_x,
+            dialog.y() + 620,
             1,
             Color::RGB(120, 120, 140),
         );
     }
 
     /// Renders the shortcuts popup showing all keyboard shortcuts.
-    pub fn render_shortcuts(&mut self) {
+    pub fn render_shortcuts(&mut self, lang: Language) {
         self.draw_overlay_backdrop();
 
-        let dialog = self.draw_dialog_box(420, 420);
+        let dialog = self.draw_dialog_box(440, 430);
 
         // Title
-        self.draw_bitmap_text(
-            "SHORTCUTS",
-            dialog.x() + 140,
+        let title = i18n::t(lang, "keyboard_shortcuts");
+        let center_x = dialog.x() + dialog.width() as i32 / 2;
+        self.draw_text_centered(
+            title,
+            center_x,
             dialog.y() + 16,
-            3,
+            2,
             Color::RGB(255, 215, 0),
         );
 
         let x_key = dialog.x() + 20;
-        let x_action = dialog.x() + 200;
-        let mut y = dialog.y() + 58;
+        let x_action = dialog.x() + 190;
+        let mut y = dialog.y() + 54;
         let line_h: i32 = 24;
         let key_color = Color::RGB(150, 220, 255);
         let action_color = Color::RGB(200, 200, 210);
 
         let shortcuts: &[(&str, &str)] = &[
-            ("LEFT CLICK", "SELECT TILE"),
-            ("CTRL+S", "SAVE GAME"),
-            ("CTRL+Q", "SAVE + QUIT"),
-            ("CTRL+N", "NEW GAME"),
-            ("CTRL+R", "RESUME"),
-            ("CTRL+P", "PAUSE"),
-            ("CTRL+M", "TOGGLE MUTE"),
-            ("SHIFT+S", "SHUFFLE"),
-            ("SHIFT+U", "UNDO"),
-            ("SHIFT+H", "HINT"),
-            ("ESCAPE", "PAUSE / RESUME"),
-            ("UP/DOWN", "NAVIGATE MENU"),
-            ("ENTER", "SELECT MENU ITEM"),
+            ("LEFT CLICK", i18n::t(lang, "tiles")),
+            ("CTRL+S", i18n::t(lang, "save_score")),
+            ("CTRL+Q", i18n::t(lang, "save_quit")),
+            ("CTRL+N", i18n::t(lang, "new_game")),
+            ("CTRL+R", i18n::t(lang, "resume_game")),
+            ("CTRL+P", i18n::t(lang, "pause_title")),
+            ("CTRL+M", "MUTE"),
+            ("SHIFT+S", i18n::t(lang, "shuffle")),
+            ("SHIFT+U", i18n::t(lang, "undo")),
+            ("SHIFT+H", i18n::t(lang, "hint")),
+            ("ESCAPE", i18n::t(lang, "paused")),
+            ("UP/DOWN", "NAVIGATE"),
+            ("ENTER", "SELECT"),
         ];
 
         for (key, action) in shortcuts {
             self.draw_bitmap_text(key, x_key, y, 2, key_color);
-            self.draw_bitmap_text(action, x_action, y, 2, action_color);
+            self.draw_text_rendered(action, x_action, y, 2, action_color);
             y += line_h;
         }
 
@@ -2040,66 +2167,69 @@ impl Renderer {
         let btn_w: u32 = 180;
         let btn_h: u32 = 40;
         let btn_x = dialog.x() + ((dialog.width() - btn_w) / 2) as i32;
-        let btn_y = dialog.y() + 420 - 55;
-        self.draw_labeled_button(btn_x, btn_y, btn_w, btn_h, Color::RGB(100, 100, 100), "BACK");
+        let btn_y = dialog.y() + 430 - 52;
+        let back_str = i18n::t(lang, "back_btn");
+        self.draw_labeled_button(btn_x, btn_y, btn_w, btn_h, Color::RGB(100, 100, 100), back_str);
     }
 
     /// Renders the victory overlay showing final time and score.
-    ///
-    /// Displays:
-    /// - Victory message
-    /// - Final time (MM:SS format)
-    /// - Final score
-    /// - New Game button
-    /// - Leaderboard button
-    ///
-    /// # Arguments
-    /// * `time` - Formatted time string (e.g., "05:23")
-    /// * `score` - Final score value
-    pub fn render_victory(&mut self, time: &str, score: u32, level: u32, selected: usize) {
+    pub fn render_victory(&mut self, time: &str, score: u32, level: u32, selected: usize, lang: Language) {
         self.draw_overlay_backdrop();
 
         let dialog_h: u32 = if level < 1000 { 360 } else { 300 };
-        let dialog = self.draw_dialog_box(350, dialog_h);
+        let dialog = self.draw_dialog_box(360, dialog_h);
 
-        // "VICTORY!" title
-        self.draw_bitmap_text(
-            "VICTORY!",
-            dialog.x() + 110,
+        let lvl_str = level.to_string();
+        let max_str = "1000".to_string();
+        let victory_title = if level < 1000 {
+            i18n::t_param(lang, "victory_title", &[("level", &lvl_str)])
+        } else {
+            i18n::t_param(lang, "all_levels_complete", &[("max", &max_str)])
+        };
+        let center_x = dialog.x() + dialog.width() as i32 / 2;
+
+        self.draw_text_centered(
+            &victory_title,
+            center_x,
             dialog.y() + 24,
-            3,
+            2,
             Color::RGB(255, 215, 0),
         );
 
         // Time display
-        let time_label = format!("TIME  {}", time);
-        self.draw_bitmap_text(
+        let time_label = format!("{}: {}", i18n::t(lang, "time"), time);
+        self.draw_text_rendered(
             &time_label,
-            dialog.x() + 100,
+            dialog.x() + 80,
             dialog.y() + 75,
             2,
             Color::RGB(100, 220, 100),
         );
 
         // Score display
-        let score_label = format!("SCORE {}", score);
-        self.draw_bitmap_text(
+        let score_label = format!("{}: {}", i18n::t(lang, "score"), score);
+        self.draw_text_rendered(
             &score_label,
-            dialog.x() + 100,
+            dialog.x() + 80,
             dialog.y() + 110,
             2,
             Color::RGB(255, 200, 50),
         );
 
-        let btn_w: u32 = 220;
+        let btn_w: u32 = 240;
         let btn_h: u32 = 44;
         let btn_x = dialog.x() + ((dialog.width() - btn_w) / 2) as i32;
 
+        let next_lvl_str = (level + 1).to_string();
+        let next_label = i18n::t_param(lang, "next_level", &[("next", &next_lvl_str)]);
+        let new_game_label = i18n::t(lang, "new_game");
+        let trophies_label = i18n::t(lang, "achievements");
+
         if level < 1000 {
             let buttons: &[(i32, Color, &str)] = &[
-                (155, Color::RGB(120, 60, 180), "NEXT LEVEL"),
-                (215, Color::RGB(50, 140, 70), "NEW GAME"),
-                (275, Color::RGB(50, 100, 180), "ACHIEVEMENTS"),
+                (155, Color::RGB(120, 60, 180), &next_label),
+                (215, Color::RGB(50, 140, 70), new_game_label),
+                (275, Color::RGB(50, 100, 180), trophies_label),
             ];
 
             for (i, (y_off, color, label)) in buttons.iter().enumerate() {
@@ -2115,8 +2245,8 @@ impl Renderer {
             }
         } else {
             let buttons: &[(i32, Color, &str)] = &[
-                (160, Color::RGB(50, 140, 70), "NEW GAME"),
-                (220, Color::RGB(50, 100, 180), "ACHIEVEMENTS"),
+                (160, Color::RGB(50, 140, 70), new_game_label),
+                (220, Color::RGB(50, 100, 180), trophies_label),
             ];
 
             for (i, (y_off, color, label)) in buttons.iter().enumerate() {
@@ -2455,8 +2585,8 @@ impl Renderer {
     }
 
     pub const LEADERBOARD_WIDTH: u32 = 660;
-    pub const LEADERBOARD_HEIGHT: u32 = 452;
-    pub const STATS_CARD_HEIGHT: u32 = 398;
+    pub const LEADERBOARD_HEIGHT: u32 = 474;
+    pub const STATS_CARD_HEIGHT: u32 = 416;
 
     /// Computes the exact Rect of the Trophies & Stats dialog centered in the window.
     pub fn leaderboard_dialog_rect(win_w: u32, win_h: u32) -> Rect {
@@ -2471,19 +2601,19 @@ impl Renderer {
         Rect::new(dialog.x(), dialog.y(), Self::LEADERBOARD_WIDTH, Self::STATS_CARD_HEIGHT)
     }
 
-    /// Returns the Rects for the two action buttons (Save Stats Image, Close).
+    /// Returns the Rects for the two action buttons (Save Stats Image, Close) flush with the trophy frame.
     pub fn leaderboard_buttons(win_w: u32, win_h: u32) -> (Rect, Rect) {
         let dialog = Self::leaderboard_dialog_rect(win_w, win_h);
-        let btn_w: u32 = 295;
-        let btn_h: u32 = 38;
+        let btn_w: u32 = 320;
+        let btn_h: u32 = 42;
         let btn_y = dialog.y() + Self::STATS_CARD_HEIGHT as i32 + 12;
-        let btn1 = Rect::new(dialog.x() + 25, btn_y, btn_w, btn_h);
+        let btn1 = Rect::new(dialog.x(), btn_y, btn_w, btn_h);
         let btn2 = Rect::new(dialog.x() + 340, btn_y, btn_w, btn_h);
         (btn1, btn2)
     }
 
     /// Renders the redesigned Trophy & Stats panel matching the modern web-based card layout.
-    pub fn render_leaderboard(&mut self, user_name: &str, is_saved_active: bool) {
+    pub fn render_leaderboard(&mut self, user_name: &str, is_saved_active: bool, lang: Language) {
         self.draw_overlay_backdrop();
 
         let leaderboard = Leaderboard::load(user_name);
@@ -2516,10 +2646,11 @@ impl Renderer {
         self.canvas.set_draw_color(Color::RGB(19, 31, 55));
         self.canvas.draw_rect(inner_border).ok();
 
+        let center_x = dialog.x() + dialog.width() as i32 / 2;
+
         // -------------------------------------------------------------
         // TOP HEADER: Pill Badge + Title + Subtitle
         // -------------------------------------------------------------
-        // Top Pill Badge: [🀄 xMahjong]
         let pill_w: u32 = 136;
         let pill_h: u32 = 22;
         let pill_x = dialog.x() + ((dialog.width() - pill_w) / 2) as i32;
@@ -2529,31 +2660,31 @@ impl Renderer {
         self.draw_mini_tile_icon(pill_x + 8, pill_y + 2);
         self.draw_bitmap_text("xMahjong", pill_x + 30, pill_y + 4, 2, Color::RGB(147, 197, 253));
 
-        // Title: 🏆 TROPHIES & STATS
-        let title_text = "TROPHIES & STATS";
+        // Title: 🏆 TROPHIES & STATS (or localized)
+        let title_text = i18n::t(lang, "trophies_title");
         let title_scale = 3u32;
-        let title_w = title_text.len() as i32 * 6 * title_scale as i32;
-        let title_total_w = title_w + 34;
-        let title_start_x = dialog.x() + (dialog.width() as i32 - title_total_w) / 2;
+        let title_w = self.text_width(title_text, title_scale);
+        let icon_w = 22;
+        let gap = 10;
+        let total_title_w = icon_w + gap + title_w as i32;
+        let title_start_x = dialog.x() + (dialog.width() as i32 - total_title_w) / 2;
         let title_y = dialog.y() + 38;
 
-        self.draw_trophy_icon(title_start_x + 12, title_y + 11, 22);
-        // Shadow/glow for title
-        self.draw_bitmap_text(title_text, title_start_x + 35, title_y + 1, title_scale, Color::RGB(100, 75, 10));
-        self.draw_bitmap_text(title_text, title_start_x + 34, title_y, title_scale, Color::RGB(251, 191, 36));
+        self.draw_trophy_icon(title_start_x + icon_w / 2, title_y + 11, 22);
+        self.draw_text_rendered(title_text, title_start_x + icon_w + gap + 1, title_y + 1, title_scale, Color::RGB(100, 75, 10));
+        self.draw_text_rendered(title_text, title_start_x + icon_w + gap, title_y, title_scale, Color::RGB(251, 191, 36));
 
         // Subtitle
-        let subtitle = "Career Milestones & Clean Clear Records";
-        let sub_w = subtitle.len() as i32 * 6 * 1;
-        let sub_x = dialog.x() + (dialog.width() as i32 - sub_w) / 2;
-        self.draw_bitmap_text(subtitle, sub_x, dialog.y() + 66, 1, Color::RGB(148, 163, 184));
+        let subtitle = i18n::t(lang, "trophies_sub");
+        self.draw_text_centered(subtitle, center_x, dialog.y() + 66, 1, Color::RGB(148, 163, 184));
 
         // -------------------------------------------------------------
         // SECTION 1: CAREER OVERVIEW
         // -------------------------------------------------------------
+        let s1_title = i18n::t(lang, "career_overview");
         let s1_y = dialog.y() + 84;
         self.draw_chart_icon(dialog.x() + 30, s1_y + 4, 14);
-        self.draw_bitmap_text("CAREER OVERVIEW", dialog.x() + 44, s1_y, 1, Color::RGB(148, 163, 184));
+        self.draw_text_rendered(s1_title, dialog.x() + 44, s1_y, 1, Color::RGB(148, 163, 184));
         self.canvas.set_draw_color(Color::RGB(30, 48, 75));
         self.canvas.draw_line(
             sdl2::rect::Point::new(dialog.x() + 152, s1_y + 4),
@@ -2561,55 +2692,50 @@ impl Renderer {
         ).ok();
 
         let card_w: u32 = 295;
-        let card_h: u32 = 68;
+        let card_h: u32 = 74;
         let card_bg = Color::RGB(17, 27, 49);
         let card_border = Color::RGB(35, 56, 93);
         let s1_card_y = s1_y + 14;
 
         // Card 1: HIGHEST LEVEL COMPLETED
         let c1_x = dialog.x() + 25;
+        let c1_center = c1_x + (card_w as i32) / 2;
         let c1_rect = Rect::new(c1_x, s1_card_y, card_w, card_h);
         self.draw_rounded_card(c1_rect, card_bg, card_border);
-        self.draw_mountain_icon(c1_x + (card_w as i32) / 2, s1_card_y + 11, 14);
+        self.draw_mountain_icon(c1_center, s1_card_y + 10, 14);
 
-        let lbl1 = "HIGHEST LEVEL COMPLETED";
-        let lbl1_x = c1_x + ((card_w as i32) - (lbl1.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(lbl1, lbl1_x, s1_card_y + 22, 1, Color::RGB(148, 163, 184));
+        let lbl1 = i18n::t(lang, "highest_level_completed");
+        self.draw_text_centered(lbl1, c1_center, s1_card_y + 20, 1, Color::RGB(148, 163, 184));
 
-        let val1 = format!("Level {}", highest_level);
-        let val1_scale = 3u32;
-        let val1_x = c1_x + ((card_w as i32) - (val1.len() as i32 * 6 * val1_scale as i32)) / 2;
-        self.draw_bitmap_text(&val1, val1_x, s1_card_y + 33, val1_scale, Color::RGB(250, 204, 21));
+        let val1 = format!("{}: {}", i18n::t(lang, "level"), highest_level);
+        self.draw_text_centered(&val1, c1_center, s1_card_y + 32, 3, Color::RGB(250, 204, 21));
 
-        let sub1 = "Out of 1000 Levels";
-        let sub1_x = c1_x + ((card_w as i32) - (sub1.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(sub1, sub1_x, s1_card_y + 56, 1, Color::RGB(100, 116, 139));
+        let sub1 = i18n::t(lang, "out_of_1000");
+        self.draw_text_centered(sub1, c1_center, s1_card_y + 58, 1, Color::RGB(100, 116, 139));
 
         // Card 2: TOTAL SCORE CURRENTLY
         let c2_x = dialog.x() + 340;
+        let c2_center = c2_x + (card_w as i32) / 2;
         let c2_rect = Rect::new(c2_x, s1_card_y, card_w, card_h);
         self.draw_rounded_card(c2_rect, card_bg, card_border);
-        self.draw_star_icon(c2_x + (card_w as i32) / 2, s1_card_y + 11, 7, Color::RGB(250, 204, 21));
+        self.draw_star_icon(c2_center, s1_card_y + 10, 7, Color::RGB(250, 204, 21));
 
-        let lbl2 = "TOTAL SCORE CURRENTLY";
-        let lbl2_x = c2_x + ((card_w as i32) - (lbl2.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(lbl2, lbl2_x, s1_card_y + 22, 1, Color::RGB(148, 163, 184));
+        let lbl2 = i18n::t(lang, "total_score_curr");
+        self.draw_text_centered(lbl2, c2_center, s1_card_y + 20, 1, Color::RGB(148, 163, 184));
 
         let val2 = Self::format_number_commas(total_score);
-        let val2_scale = 3u32;
-        let val2_x = c2_x + ((card_w as i32) - (val2.len() as i32 * 6 * val2_scale as i32)) / 2;
-        self.draw_bitmap_text(&val2, val2_x, s1_card_y + 33, val2_scale, Color::RGB(56, 189, 248));
+        self.draw_text_centered(&val2, c2_center, s1_card_y + 32, 3, Color::RGB(56, 189, 248));
 
-        let sub2 = "Accumulated points";
-        let sub2_x = c2_x + ((card_w as i32) - (sub2.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(sub2, sub2_x, s1_card_y + 56, 1, Color::RGB(100, 116, 139));
+        let sub2 = i18n::t(lang, "accum_points");
+        self.draw_text_centered(sub2, c2_center, s1_card_y + 58, 1, Color::RGB(100, 116, 139));
 
         // -------------------------------------------------------------
         // SECTION 2: DAILY CONSISTENCY STREAKS
         // -------------------------------------------------------------
+        let s2_title = i18n::t(lang, "daily_consistency");
         let s2_y = s1_card_y + card_h as i32 + 10;
         self.draw_flame_icon(dialog.x() + 30, s2_y + 4, 12);
-        self.draw_bitmap_text("DAILY CONSISTENCY STREAKS", dialog.x() + 44, s2_y, 1, Color::RGB(148, 163, 184));
+        self.draw_text_rendered(s2_title, dialog.x() + 44, s2_y, 1, Color::RGB(148, 163, 184));
         self.canvas.set_draw_color(Color::RGB(30, 48, 75));
         self.canvas.draw_line(
             sdl2::rect::Point::new(dialog.x() + 215, s2_y + 4),
@@ -2620,41 +2746,35 @@ impl Renderer {
 
         // Card 3: CURRENT DAY STREAK
         let c3_x = dialog.x() + 25;
+        let c3_center = c3_x + (card_w as i32) / 2;
         let c3_rect = Rect::new(c3_x, s2_card_y, card_w, card_h);
         self.draw_rounded_card(c3_rect, card_bg, card_border);
-        self.draw_flame_icon(c3_x + (card_w as i32) / 2, s2_card_y + 11, 14);
+        self.draw_flame_icon(c3_center, s2_card_y + 10, 14);
 
-        let lbl3 = "CURRENT DAY STREAK";
-        let lbl3_x = c3_x + ((card_w as i32) - (lbl3.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(lbl3, lbl3_x, s2_card_y + 22, 1, Color::RGB(148, 163, 184));
+        let lbl3 = i18n::t(lang, "current_day_streak");
+        self.draw_text_centered(lbl3, c3_center, s2_card_y + 20, 1, Color::RGB(148, 163, 184));
 
-        let val3 = format!("{} {}", current_streak, if current_streak == 1 { "Day" } else { "Days" });
-        let val3_scale = 3u32;
-        let val3_x = c3_x + ((card_w as i32) - (val3.len() as i32 * 6 * val3_scale as i32)) / 2;
-        self.draw_bitmap_text(&val3, val3_x, s2_card_y + 33, val3_scale, Color::RGB(251, 146, 60));
+        let val3 = format!("{} {}", current_streak, if current_streak == 1 { i18n::t(lang, "day") } else { i18n::t(lang, "days") });
+        self.draw_text_centered(&val3, c3_center, s2_card_y + 32, 3, Color::RGB(251, 146, 60));
 
-        let sub3 = "Active Today";
-        let sub3_x = c3_x + ((card_w as i32) - (sub3.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(sub3, sub3_x, s2_card_y + 56, 1, Color::RGB(100, 116, 139));
+        let sub3 = i18n::t(lang, "active_today");
+        self.draw_text_centered(sub3, c3_center, s2_card_y + 58, 1, Color::RGB(100, 116, 139));
 
         // Card 4: BEST STREAK RECORD
         let c4_x = dialog.x() + 340;
+        let c4_center = c4_x + (card_w as i32) / 2;
         let c4_rect = Rect::new(c4_x, s2_card_y, card_w, card_h);
         self.draw_rounded_card(c4_rect, card_bg, card_border);
-        self.draw_crown_icon(c4_x + (card_w as i32) / 2, s2_card_y + 11, 14);
+        self.draw_crown_icon(c4_center, s2_card_y + 10, 14);
 
-        let lbl4 = "BEST STREAK RECORD";
-        let lbl4_x = c4_x + ((card_w as i32) - (lbl4.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(lbl4, lbl4_x, s2_card_y + 22, 1, Color::RGB(148, 163, 184));
+        let lbl4 = i18n::t(lang, "best_streak_record");
+        self.draw_text_centered(lbl4, c4_center, s2_card_y + 20, 1, Color::RGB(148, 163, 184));
 
-        let val4 = format!("{} {}", best_streak, if best_streak == 1 { "Day" } else { "Days" });
-        let val4_scale = 3u32;
-        let val4_x = c4_x + ((card_w as i32) - (val4.len() as i32 * 6 * val4_scale as i32)) / 2;
-        self.draw_bitmap_text(&val4, val4_x, s2_card_y + 33, val4_scale, Color::RGB(251, 146, 60));
+        let val4 = format!("{} {}", best_streak, if best_streak == 1 { i18n::t(lang, "day") } else { i18n::t(lang, "days") });
+        self.draw_text_centered(&val4, c4_center, s2_card_y + 32, 3, Color::RGB(251, 146, 60));
 
-        let sub4 = "Consecutive days played";
-        let sub4_x = c4_x + ((card_w as i32) - (sub4.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(sub4, sub4_x, s2_card_y + 56, 1, Color::RGB(100, 116, 139));
+        let sub4 = i18n::t(lang, "consecutive_days");
+        self.draw_text_centered(sub4, c4_center, s2_card_y + 58, 1, Color::RGB(100, 116, 139));
 
         // Daily Gift Banner Box
         let banner_y = s2_card_y + card_h as i32 + 6;
@@ -2664,16 +2784,16 @@ impl Renderer {
         self.draw_rounded_card(banner_rect, Color::RGB(9, 44, 32), Color::RGB(16, 185, 129));
         
         self.draw_gift_icon(dialog.x() + 40, banner_y + 11, 12);
-        let banner_text = "Daily Gift: +1 Free Life (   ) granted every calendar day on launch!";
-        self.draw_bitmap_text(banner_text, dialog.x() + 54, banner_y + 7, 1, Color::RGB(52, 211, 153));
-        self.draw_heart_icon(dialog.x() + 218, banner_y + 11, 10, Color::RGB(244, 63, 94));
+        let banner_text = i18n::t(lang, "daily_gift_granted");
+        self.draw_text_rendered(banner_text, dialog.x() + 54, banner_y + 7, 1, Color::RGB(52, 211, 153));
 
         // -------------------------------------------------------------
         // SECTION 3: MASTERY & CLEAN CLEARANCES
         // -------------------------------------------------------------
+        let s3_title = i18n::t(lang, "mastery_clean");
         let s3_y = banner_y + banner_h as i32 + 10;
         self.draw_trophy_icon(dialog.x() + 30, s3_y + 4, 12);
-        self.draw_bitmap_text("MASTERY & CLEAN CLEARANCES", dialog.x() + 44, s3_y, 1, Color::RGB(148, 163, 184));
+        self.draw_text_rendered(s3_title, dialog.x() + 44, s3_y, 1, Color::RGB(148, 163, 184));
         self.canvas.set_draw_color(Color::RGB(30, 48, 75));
         self.canvas.draw_line(
             sdl2::rect::Point::new(dialog.x() + 235, s3_y + 4),
@@ -2682,64 +2802,55 @@ impl Renderer {
 
         let s3_card_y = s3_y + 14;
         let card3_w: u32 = 196;
-        let card3_h: u32 = 72;
+        let card3_h: u32 = 74;
 
         // Card 5: NO HINTS
         let c5_x = dialog.x() + 25;
+        let c5_center = c5_x + (card3_w as i32) / 2;
         let c5_rect = Rect::new(c5_x, s3_card_y, card3_w, card3_h);
         self.draw_rounded_card(c5_rect, card_bg, card_border);
-        self.draw_bulb_icon(c5_x + (card3_w as i32) / 2, s3_card_y + 12, 14);
+        self.draw_bulb_icon(c5_center, s3_card_y + 10, 14);
 
-        let lbl5 = "NO HINTS";
-        let lbl5_x = c5_x + ((card3_w as i32) - (lbl5.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(lbl5, lbl5_x, s3_card_y + 24, 1, Color::RGB(148, 163, 184));
+        let lbl5 = i18n::t(lang, "no_hints");
+        self.draw_text_centered(lbl5, c5_center, s3_card_y + 20, 1, Color::RGB(148, 163, 184));
 
         let val5 = format!("{}", trophy_state.no_hints_count);
-        let val5_scale = 3u32;
-        let val5_x = c5_x + ((card3_w as i32) - (val5.len() as i32 * 6 * val5_scale as i32)) / 2;
-        self.draw_bitmap_text(&val5, val5_x, s3_card_y + 36, val5_scale, Color::RGB(74, 222, 128));
+        self.draw_text_centered(&val5, c5_center, s3_card_y + 32, 3, Color::RGB(74, 222, 128));
 
-        let sub5 = "Zero hints";
-        let sub5_x = c5_x + ((card3_w as i32) - (sub5.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(sub5, sub5_x, s3_card_y + 58, 1, Color::RGB(100, 116, 139));
+        let sub5 = i18n::t(lang, "zero_hints");
+        self.draw_text_centered(sub5, c5_center, s3_card_y + 58, 1, Color::RGB(100, 116, 139));
 
         // Card 6: NO UNDOS
         let c6_x = dialog.x() + 232;
+        let c6_center = c6_x + (card3_w as i32) / 2;
         let c6_rect = Rect::new(c6_x, s3_card_y, card3_w, card3_h);
         self.draw_rounded_card(c6_rect, card_bg, card_border);
-        self.draw_undo_icon(c6_x + (card3_w as i32) / 2, s3_card_y + 12, 14);
+        self.draw_undo_icon(c6_center, s3_card_y + 10, 14);
 
-        let lbl6 = "NO UNDOS";
-        let lbl6_x = c6_x + ((card3_w as i32) - (lbl6.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(lbl6, lbl6_x, s3_card_y + 24, 1, Color::RGB(148, 163, 184));
+        let lbl6 = i18n::t(lang, "no_undos");
+        self.draw_text_centered(lbl6, c6_center, s3_card_y + 20, 1, Color::RGB(148, 163, 184));
 
         let val6 = format!("{}", trophy_state.no_undos_count);
-        let val6_scale = 3u32;
-        let val6_x = c6_x + ((card3_w as i32) - (val6.len() as i32 * 6 * val6_scale as i32)) / 2;
-        self.draw_bitmap_text(&val6, val6_x, s3_card_y + 36, val6_scale, Color::RGB(192, 132, 252));
+        self.draw_text_centered(&val6, c6_center, s3_card_y + 32, 3, Color::RGB(192, 132, 252));
 
-        let sub6 = "Zero undos";
-        let sub6_x = c6_x + ((card3_w as i32) - (sub6.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(sub6, sub6_x, s3_card_y + 58, 1, Color::RGB(100, 116, 139));
+        let sub6 = i18n::t(lang, "zero_undos");
+        self.draw_text_centered(sub6, c6_center, s3_card_y + 58, 1, Color::RGB(100, 116, 139));
 
         // Card 7: NO LIVES USED (Zero shuffles)
         let c7_x = dialog.x() + 439;
+        let c7_center = c7_x + (card3_w as i32) / 2;
         let c7_rect = Rect::new(c7_x, s3_card_y, card3_w, card3_h);
         self.draw_rounded_card(c7_rect, card_bg, card_border);
-        self.draw_heart_icon(c7_x + (card3_w as i32) / 2, s3_card_y + 12, 14, Color::RGB(244, 63, 94));
+        self.draw_heart_icon(c7_center, s3_card_y + 10, 14, Color::RGB(244, 63, 94));
 
-        let lbl7 = "NO LIVES USED";
-        let lbl7_x = c7_x + ((card3_w as i32) - (lbl7.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(lbl7, lbl7_x, s3_card_y + 24, 1, Color::RGB(148, 163, 184));
+        let lbl7 = i18n::t(lang, "no_lives_used");
+        self.draw_text_centered(lbl7, c7_center, s3_card_y + 20, 1, Color::RGB(148, 163, 184));
 
         let val7 = format!("{}", trophy_state.no_shuffles_count);
-        let val7_scale = 3u32;
-        let val7_x = c7_x + ((card3_w as i32) - (val7.len() as i32 * 6 * val7_scale as i32)) / 2;
-        self.draw_bitmap_text(&val7, val7_x, s3_card_y + 36, val7_scale, Color::RGB(56, 189, 248));
+        self.draw_text_centered(&val7, c7_center, s3_card_y + 32, 3, Color::RGB(56, 189, 248));
 
-        let sub7 = "Zero shuffles";
-        let sub7_x = c7_x + ((card3_w as i32) - (sub7.len() as i32 * 6)) / 2;
-        self.draw_bitmap_text(sub7, sub7_x, s3_card_y + 58, 1, Color::RGB(100, 116, 139));
+        let sub7 = i18n::t(lang, "zero_shuffles");
+        self.draw_text_centered(sub7, c7_center, s3_card_y + 58, 1, Color::RGB(100, 116, 139));
 
         // -------------------------------------------------------------
         // SECTION 4: ACTION BUTTONS (Save Stats Image & Close)
@@ -2756,31 +2867,41 @@ impl Renderer {
         self.draw_rounded_card(btn1_rect, btn1_bg, btn1_border);
 
         if is_saved_active {
-            let label = "✓ SAVED & OPENED!";
-            let text_scale = 2u32;
-            let text_w = label.len() as i32 * 6 * text_scale as i32;
-            let tx = btn1_x + (btn_w as i32 - text_w) / 2;
-            let ty = btn_y + (btn_h as i32 - 14) / 2;
-            self.draw_bitmap_text(label, tx, ty, text_scale, Color::RGB(255, 255, 255));
+            let label = "✓ SAVED!";
+            self.draw_text_centered(label, btn1_x + (btn_w as i32) / 2, btn_y + (btn_h as i32 - 14) / 2, 2, Color::RGB(255, 255, 255));
         } else {
-            self.draw_floppy_icon(btn1_x + 50, btn_y + 19, 16);
-            let label = "SAVE STATS IMAGE";
-            let text_scale = 2u32;
-            self.draw_bitmap_text(label, btn1_x + 72, btn_y + 12, text_scale, Color::RGB(255, 255, 255));
+            let label = i18n::t(lang, "save_stats_image");
+            let icon_w: i32 = 16;
+            let gap: i32 = 10;
+            let text_scale = if self.text_width(label, 2) as i32 + icon_w + gap <= btn_w as i32 - 20 { 2u32 } else { 1u32 };
+            let text_w = self.text_width(label, text_scale) as i32;
+            let text_h = (7 * text_scale) as i32;
+            let total_content_w = icon_w + gap + text_w;
+            let start_x = btn1_x + (btn_w as i32 - total_content_w) / 2;
+            self.draw_floppy_icon(start_x + icon_w / 2, btn_y + (btn_h as i32) / 2, 16);
+            self.draw_text_rendered(label, start_x + icon_w + gap, btn_y + (btn_h as i32 - text_h) / 2, text_scale, Color::RGB(255, 255, 255));
         }
 
         // Right button: ✖ CLOSE
         let btn2_x = btn2_rect.x();
+        let btn2_w = btn2_rect.width();
+        let btn2_h = btn2_rect.height();
         self.draw_rounded_card(btn2_rect, Color::RGB(2, 132, 199), Color::RGB(56, 189, 248));
 
-        self.draw_cross_icon(btn2_x + 95, btn_y + 19, 12, Color::RGB(255, 255, 255));
-        let label2 = "CLOSE";
-        let text_scale = 2u32;
-        self.draw_bitmap_text(label2, btn2_x + 115, btn_y + 12, text_scale, Color::RGB(255, 255, 255));
+        let label2 = i18n::t(lang, "close");
+        let icon_w: i32 = 12;
+        let gap: i32 = 10;
+        let text_scale = if self.text_width(label2, 2) as i32 + icon_w + gap <= btn2_w as i32 - 20 { 2u32 } else { 1u32 };
+        let text_w = self.text_width(label2, text_scale) as i32;
+        let text_h = (7 * text_scale) as i32;
+        let total_content_w = icon_w + gap + text_w;
+        let start_x = btn2_x + (btn2_w as i32 - total_content_w) / 2;
+        self.draw_cross_icon(start_x + icon_w / 2, btn_y + (btn2_h as i32) / 2, 12, Color::RGB(255, 255, 255));
+        self.draw_text_rendered(label2, start_x + icon_w + gap, btn_y + (btn2_h as i32 - text_h) / 2, text_scale, Color::RGB(255, 255, 255));
     }
 
     /// Renders the level select screen allowing the user to browse and replay any unlocked level.
-    pub fn render_level_select(&mut self, user_name: &str, progress: &UserProgress, page: usize, selected_level: u32) {
+    pub fn render_level_select(&mut self, user_name: &str, progress: &UserProgress, page: usize, selected_level: u32, lang: Language) {
         self.draw_overlay_backdrop();
 
         let dialog_w: u32 = 720;
@@ -2788,11 +2909,11 @@ impl Renderer {
         let dialog = self.draw_dialog_box(dialog_w, dialog_h);
 
         // Title (centered, scale 3)
-        let title = "LEVEL SELECT";
-        let title_w = title.len() as i32 * 6 * 3;
-        self.draw_bitmap_text(
+        let title = i18n::t(lang, "select_level");
+        let center_x = dialog.x() + dialog.width() as i32 / 2;
+        self.draw_text_centered(
             title,
-            dialog.x() + (dialog.width() as i32 - title_w) / 2,
+            center_x,
             dialog.y() + 16,
             3,
             Color::RGB(255, 215, 0),
@@ -2802,11 +2923,11 @@ impl Renderer {
         let completed_count = progress.completed_levels.len().max(progress.max_completed_level as usize);
         let total_pages = 40; // 1000 / 25
         let current_page = page.min(total_pages - 1);
-        let info_text = format!("USER: {}   COMPLETED: {}/1000   PAGE {}/{}", user_name, completed_count, current_page + 1, total_pages);
-        let info_w = info_text.len() as i32 * 6 * 2;
-        self.draw_bitmap_text(
+        let page_info = i18n::t_param(lang, "page_info", &[("current", &(current_page + 1).to_string()), ("total", &total_pages.to_string())]);
+        let info_text = format!("USER: {}   COMPLETED: {}/1000   {}", user_name, completed_count, page_info);
+        self.draw_text_centered(
             &info_text,
-            dialog.x() + (dialog.width() as i32 - info_w) / 2,
+            center_x,
             dialog.y() + 50,
             2,
             Color::RGB(150, 220, 255),
@@ -2814,11 +2935,11 @@ impl Renderer {
 
         // Phase Quick Jump Tabs
         let tabs: &[(&str, usize)] = &[
-            ("PENGUIN", 0),
-            ("DOG", 0),
-            ("SPACE", 0),
-            ("ENDGAME", 2),
-            ("GRANDMASTER", 4),
+            (i18n::t(lang, "phase_penguin_short"), 0),
+            (i18n::t(lang, "phase_dog_short"), 0),
+            (i18n::t(lang, "phase_space_short"), 0),
+            (i18n::t(lang, "phase_endgame_short"), 2),
+            (i18n::t(lang, "phase_grandmaster_short"), 4),
         ];
         let tab_w: u32 = 124;
         let tab_h: u32 = 28;
@@ -2850,6 +2971,7 @@ impl Renderer {
         let grid_start_y = dialog.y() + 116;
 
         let page_start_level = (current_page * 25 + 1) as u32;
+        let play_text = i18n::t(lang, "play");
 
         for row in 0..grid_rows {
             for col in 0..grid_cols {
@@ -2883,7 +3005,7 @@ impl Renderer {
                         Color::RGB(70, 130, 220),
                         Color::RGB(200, 230, 255),
                         Color::RGB(100, 200, 255),
-                        "PLAY",
+                        play_text,
                     )
                 } else {
                     (
@@ -2902,21 +3024,20 @@ impl Renderer {
                 self.canvas.draw_rect(cell_rect).ok();
 
                 // Draw level number
-                let lvl_str = format!("LVL {}", level);
-                let lvl_w = lvl_str.len() as i32 * 6 * 2;
-                self.draw_bitmap_text(
+                let lvl_str = format!("{}: {}", i18n::t(lang, "level"), level);
+                let cell_center_x = cx + (cell_w as i32) / 2;
+                self.draw_text_centered(
                     &lvl_str,
-                    cx + (cell_w as i32 - lvl_w) / 2,
+                    cell_center_x,
                     cy + 8,
-                    2,
+                    1,
                     text_color,
                 );
 
                 // Draw status text (scale 1)
-                let st_w = status_text.len() as i32 * 6;
-                self.draw_bitmap_text(
+                self.draw_text_centered(
                     status_text,
-                    cx + (cell_w as i32 - st_w) / 2,
+                    cell_center_x,
                     cy + 34,
                     1,
                     status_color,
@@ -2945,14 +3066,14 @@ impl Renderer {
         } else {
             Color::RGB(40, 45, 55)
         };
-        self.draw_labeled_button(prev_x, nav_y, nav_btn_w, nav_btn_h, prev_color, "< PREV");
+        let prev_label = format!("< {}", i18n::t(lang, "prev_page"));
+        self.draw_labeled_button(prev_x, nav_y, nav_btn_w, nav_btn_h, prev_color, &prev_label);
 
         // Page indicator in middle
-        let page_str = format!("PAGE {} OF {}", current_page + 1, total_pages);
-        let page_w = page_str.len() as i32 * 6 * 2;
-        self.draw_bitmap_text(
+        let page_str = i18n::t_param(lang, "page_info", &[("current", &(current_page + 1).to_string()), ("total", &total_pages.to_string())]);
+        self.draw_text_centered(
             &page_str,
-            dialog.x() + (dialog.width() as i32 - page_w) / 2,
+            center_x,
             nav_y + 10,
             2,
             Color::RGB(200, 220, 240),
@@ -2965,18 +3086,20 @@ impl Renderer {
         } else {
             Color::RGB(40, 45, 55)
         };
-        self.draw_labeled_button(next_x, nav_y, nav_btn_w, nav_btn_h, next_color, "NEXT >");
+        let next_label = format!("{} >", i18n::t(lang, "next_page"));
+        self.draw_labeled_button(next_x, nav_y, nav_btn_w, nav_btn_h, next_color, &next_label);
 
         // BACK button
         let back_w: u32 = 160;
         let back_h: u32 = 40;
         let back_x = dialog.x() + (dialog.width() as i32 - back_w as i32) / 2;
         let back_y = dialog.y() + 494;
-        self.draw_labeled_button(back_x, back_y, back_w, back_h, Color::RGB(100, 100, 100), "BACK");
+        let back_str = i18n::t(lang, "back_btn");
+        self.draw_labeled_button(back_x, back_y, back_w, back_h, Color::RGB(100, 100, 100), back_str);
 
         // Footer hint
         let hint = "ARROWS NAVIGATE  ENTER PLAY  PGUP/DN PAGE  ESC BACK";
-        let hint_w = hint.len() as i32 * 6;
+        let hint_w = hint.chars().count() as i32 * 6;
         self.draw_bitmap_text(
             hint,
             dialog.x() + (dialog.width() as i32 - hint_w) / 2,
@@ -2987,42 +3110,39 @@ impl Renderer {
     }
 
     /// Renders a beautiful daily play streak achievement popup.
-    pub fn render_daily_streak_popup(&mut self, streak: u32) {
+    pub fn render_daily_streak_popup(&mut self, streak: u32, lang: Language) {
         self.draw_overlay_backdrop();
 
         let dialog = self.draw_dialog_box(380, 240);
+        let center_x = dialog.x() + dialog.width() as i32 / 2;
 
         // Neon cyan title
-        let title = "DAILY ACHIEVEMENT";
-        let title_w = title.len() as i32 * 6 * 2;
-        self.draw_bitmap_text(
+        let title = i18n::t(lang, "daily_streak_title");
+        self.draw_text_centered(
             title,
-            dialog.x() + (dialog.width() as i32 - title_w) / 2,
+            center_x,
             dialog.y() + 25,
             2,
             Color::RGB(0, 255, 200),
         );
 
         // Subtitle
-        let subtitle = "CONSECUTIVE PLAY STREAK";
-        let sub_w = subtitle.len() as i32 * 6 * 1;
-        self.draw_bitmap_text(
+        let subtitle = i18n::t(lang, "daily_streak_sub");
+        self.draw_text_centered(
             subtitle,
-            dialog.x() + (dialog.width() as i32 - sub_w) / 2,
+            center_x,
             dialog.y() + 75,
             1,
             Color::RGB(180, 180, 220),
         );
 
         // Day count
-        let day_text = format!("DAY {}", streak);
-        let text_w = day_text.len() as i32 * 6 * 4;
-        let tx = dialog.x() + (dialog.width() as i32 - text_w) / 2;
-        self.draw_bitmap_text(
+        let day_text = format!("{}: {}", i18n::t(lang, "day"), streak);
+        self.draw_text_centered(
             &day_text,
-            tx,
+            center_x,
             dialog.y() + 115,
-            4,
+            3,
             Color::RGB(255, 215, 0), // Gold
         );
 
@@ -3031,35 +3151,34 @@ impl Renderer {
         let btn_h: u32 = 40;
         let btn_x = dialog.x() + ((dialog.width() - btn_w) / 2) as i32;
         let btn_y = dialog.y() + 180;
-        self.draw_labeled_button(btn_x, btn_y, btn_w, btn_h, Color::RGB(0, 150, 150), "AWESOME");
+        let continue_str = i18n::t(lang, "continue_btn");
+        self.draw_labeled_button(btn_x, btn_y, btn_w, btn_h, Color::RGB(0, 150, 150), continue_str);
     }
 
     /// Renders the no-moves notification with options to shuffle or start a new game.
-    ///
-    /// Displayed when no valid pairs remain but tiles are still on the board.
-    /// Options:
-    /// - Shuffle (if shuffles remaining > 0)
-    /// - New Game
-    pub fn render_no_moves(&mut self, selected: usize) {
+    pub fn render_no_moves(&mut self, selected: usize, lang: Language) {
         self.draw_overlay_backdrop();
 
         let dialog = self.draw_dialog_box(320, 220);
+        let center_x = dialog.x() + dialog.width() as i32 / 2;
 
         // "NO MOVES!" title
-        self.draw_bitmap_text(
-            "NO MOVES!",
-            dialog.x() + 85,
+        let title = i18n::t(lang, "no_more_moves");
+        self.draw_text_centered(
+            title,
+            center_x,
             dialog.y() + 22,
-            3,
+            2,
             Color::RGB(255, 120, 80),
         );
 
         // Explanatory text
-        self.draw_bitmap_text(
-            "NO VALID PAIRS REMAIN",
-            dialog.x() + 40,
+        let sub = i18n::t(lang, "out_of_lives_sub");
+        self.draw_text_centered(
+            sub,
+            center_x,
             dialog.y() + 68,
-            2,
+            1,
             Color::RGB(180, 180, 200),
         );
 
@@ -3067,9 +3186,12 @@ impl Renderer {
         let btn_h: u32 = 44;
         let btn_x = dialog.x() + ((dialog.width() - btn_w) / 2) as i32;
 
+        let shuffle_str = i18n::t(lang, "shuffle");
+        let new_game_str = i18n::t(lang, "new_game");
+
         let buttons: &[(i32, Color, &str)] = &[
-            (110, Color::RGB(120, 60, 160), "SHUFFLE"),
-            (164, Color::RGB(50, 140, 70), "NEW GAME"),
+            (110, Color::RGB(120, 60, 160), shuffle_str),
+            (164, Color::RGB(50, 140, 70), new_game_str),
         ];
 
         for (i, (y_off, color, label)) in buttons.iter().enumerate() {
@@ -3086,17 +3208,12 @@ impl Renderer {
     }
 
     /// Renders a semi-transparent hint suggestion banner over the game board.
-    ///
-    /// Shown after 120 seconds of inactivity (no clicks or pair matches) while Playing.
-    /// The banner is non-intrusive: a translucent pill near the bottom of the screen.
-    pub fn render_hint_suggestion(&mut self) {
+    pub fn render_hint_suggestion(&mut self, lang: Language) {
         let (win_w, win_h) = self.window_size();
 
-        // Semi-transparent backdrop pill centered near the bottom
-        let text = "TRY SHIFT+H FOR HINT";
+        let text = i18n::t(lang, "hint_suggestion");
         let scale: u32 = 2;
-        let char_w = 6 * scale; // each bitmap char is ~5px + 1px spacing, scaled
-        let text_w = text.len() as u32 * char_w;
+        let text_w = self.text_width(text, scale);
         let padding_x: u32 = 24;
         let padding_y: u32 = 14;
         let pill_w = text_w + padding_x * 2;
@@ -3117,40 +3234,39 @@ impl Renderer {
         // Draw the text centered in the pill
         let text_x = pill_x as i32 + padding_x as i32;
         let text_y = pill_y as i32 + padding_y as i32;
-        self.draw_bitmap_text(text, text_x, text_y, scale, Color::RGBA(180, 220, 255, 220));
+        self.draw_text_rendered(text, text_x, text_y, scale, Color::RGBA(180, 220, 255, 220));
     }
 
     /// Renders the game over dialog when no moves and no shuffles remain.
-    ///
-    /// Displays final stats (score, time, hints, shuffles, level) and offers:
-    /// - Save Score (to enter name for leaderboard)
-    /// - New Game
-    pub fn render_game_over(&mut self, score: u32, time_seconds: u32, hints_used: u32, shuffles_used: u32, level: u32, selected: usize) {
+    pub fn render_game_over(&mut self, score: u32, time_seconds: u32, hints_used: u32, shuffles_used: u32, level: u32, selected: usize, lang: Language) {
         self.draw_overlay_backdrop();
 
         let dialog = self.draw_dialog_box(380, 374);
+        let center_x = dialog.x() + dialog.width() as i32 / 2;
 
         // "GAME OVER" title (red)
-        self.draw_bitmap_text(
-            "GAME OVER",
-            dialog.x() + 105,
+        let title = i18n::t(lang, "out_of_lives");
+        self.draw_text_centered(
+            title,
+            center_x,
             dialog.y() + 20,
-            3,
+            2,
             Color::RGB(255, 80, 80),
         );
 
         // Explanatory text
-        self.draw_bitmap_text(
-            "NO MOVES OR SHUFFLES LEFT",
-            dialog.x() + 30,
+        let sub = i18n::t(lang, "out_of_lives_sub");
+        self.draw_text_centered(
+            sub,
+            center_x,
             dialog.y() + 62,
-            2,
+            1,
             Color::RGB(180, 180, 200),
         );
 
         // Stats display
-        let level_text = format!("LEVEL  {}", level);
-        self.draw_bitmap_text(
+        let level_text = format!("{}:  {}", i18n::t(lang, "level"), level);
+        self.draw_text_rendered(
             &level_text,
             dialog.x() + 50,
             dialog.y() + 100,
@@ -3158,8 +3274,8 @@ impl Renderer {
             Color::RGB(200, 200, 220),
         );
 
-        let score_text = format!("SCORE  {}", score);
-        self.draw_bitmap_text(
+        let score_text = format!("{}:  {}", i18n::t(lang, "score"), score);
+        self.draw_text_rendered(
             &score_text,
             dialog.x() + 50,
             dialog.y() + 124,
@@ -3169,8 +3285,8 @@ impl Renderer {
 
         let minutes = time_seconds / 60;
         let seconds = time_seconds % 60;
-        let time_text = format!("TIME   {:02}:{:02}", minutes, seconds);
-        self.draw_bitmap_text(
+        let time_text = format!("{}:   {:02}:{:02}", i18n::t(lang, "time"), minutes, seconds);
+        self.draw_text_rendered(
             &time_text,
             dialog.x() + 50,
             dialog.y() + 148,
@@ -3178,8 +3294,8 @@ impl Renderer {
             Color::RGB(100, 220, 100),
         );
 
-        let hints_text = format!("HINTS  {}", hints_used);
-        self.draw_bitmap_text(
+        let hints_text = format!("{}:  {}", i18n::t(lang, "hints"), hints_used);
+        self.draw_text_rendered(
             &hints_text,
             dialog.x() + 50,
             dialog.y() + 172,
@@ -3187,8 +3303,8 @@ impl Renderer {
             Color::RGB(150, 180, 255),
         );
 
-        let shuffles_text = format!("SHUFFLES  {}", shuffles_used);
-        self.draw_bitmap_text(
+        let shuffles_text = format!("{}:  {}", i18n::t(lang, "lives"), shuffles_used);
+        self.draw_text_rendered(
             &shuffles_text,
             dialog.x() + 200,
             dialog.y() + 172,
@@ -3200,10 +3316,14 @@ impl Renderer {
         let btn_h: u32 = 44;
         let btn_x = dialog.x() + ((dialog.width() - btn_w) / 2) as i32;
 
+        let save_score_str = i18n::t(lang, "save_score");
+        let new_game_str = i18n::t(lang, "new_game");
+        let wait_shuffle_str = i18n::t(lang, "wait_for_shuffle");
+
         let buttons: &[(i32, Color, &str)] = &[
-            (210, Color::RGB(180, 140, 30), "SAVE SCORE"),
-            (264, Color::RGB(50, 140, 70), "NEW GAME"),
-            (318, Color::RGB(80, 100, 180), "WAIT FOR SHUFFLE"),
+            (210, Color::RGB(180, 140, 30), save_score_str),
+            (264, Color::RGB(50, 140, 70), new_game_str),
+            (318, Color::RGB(80, 100, 180), wait_shuffle_str),
         ];
 
         for (i, (y_off, color, label)) in buttons.iter().enumerate() {
@@ -3219,26 +3339,8 @@ impl Renderer {
         }
     }
 
-    /// Renders the name entry overlay for the leaderboard.
-    ///
-    /// Displays:
-    /// - "High Score!" title
-    /// - Score and time info
-    /// - Text input field showing the current name
-    /// - Instructions (Enter to submit, Esc to cancel)
-    ///
-    /// # Arguments
     /// Renders the player selection and name entry dialog.
-    ///
-    /// If existing profiles exist:
-    /// - Displays the list of saved player profiles with level/save/streak badges
-    /// - Displays pagination buttons if more than PROFILES_PER_PAGE profiles exist
-    /// - Displays a text input field and Start button to create a new player
-    /// - Highlights the currently selected profile or input field
-    ///
-    /// If no profiles exist:
-    /// - Displays a clean initial username entry dialog
-    pub fn render_name_entry(&mut self, state: &NameEntryState) {
+    pub fn render_name_entry(&mut self, state: &NameEntryState, lang: Language) {
         self.draw_overlay_backdrop();
 
         let is_startup = state.score == 0 && state.time_seconds == 0;
@@ -3247,16 +3349,18 @@ impl Renderer {
             // High score screen (for games completed that qualified for leaderboard)
             let dialog = self.draw_dialog_box(400, 280);
 
-            self.draw_bitmap_text(
-                "HIGH SCORE!",
-                dialog.x() + 112,
+            let title = i18n::t(lang, "trophies_title");
+            let title_w = title.chars().count() as i32 * 6 * 2;
+            self.draw_text_rendered(
+                title,
+                dialog.x() + (dialog.width() as i32 - title_w) / 2,
                 dialog.y() + 18,
-                3,
+                2,
                 Color::RGB(255, 215, 0),
             );
 
-            let score_text = format!("SCORE  {}", state.score);
-            self.draw_bitmap_text(
+            let score_text = format!("{}:  {}", i18n::t(lang, "score"), state.score);
+            self.draw_text_rendered(
                 &score_text,
                 dialog.x() + 130,
                 dialog.y() + 58,
@@ -3266,8 +3370,8 @@ impl Renderer {
 
             let minutes = state.time_seconds / 60;
             let seconds = state.time_seconds % 60;
-            let time_text = format!("TIME  {:02}:{:02}", minutes, seconds);
-            self.draw_bitmap_text(
+            let time_text = format!("{}:  {:02}:{:02}", i18n::t(lang, "time"), minutes, seconds);
+            self.draw_text_rendered(
                 &time_text,
                 dialog.x() + 130,
                 dialog.y() + 82,
@@ -3275,8 +3379,9 @@ impl Renderer {
                 Color::RGB(100, 200, 100),
             );
 
-            self.draw_bitmap_text(
-                "ENTER YOUR NAME",
+            let enter_label = i18n::t(lang, "enter_name");
+            self.draw_text_rendered(
+                enter_label,
                 dialog.x() + 40,
                 dialog.y() + 118,
                 2,
@@ -3296,7 +3401,7 @@ impl Renderer {
 
             if !state.text.is_empty() {
                 let display_name: String = state.text.to_uppercase();
-                self.draw_bitmap_text(
+                self.draw_text_rendered(
                     &display_name,
                     input_x + 6,
                     input_y + 10,
@@ -3342,9 +3447,9 @@ impl Renderer {
             let dialog = self.draw_dialog_box(420, 300);
 
             // Title
-            let title = "WELCOME TO XMAHJONG";
-            let title_w = title.len() as i32 * 6 * 3;
-            self.draw_bitmap_text(
+            let title = "xMahjong";
+            let title_w = title.chars().count() as i32 * 6 * 3;
+            self.draw_text_rendered(
                 title,
                 dialog.x() + (dialog.width() as i32 - title_w) / 2,
                 dialog.y() + 24,
@@ -3352,9 +3457,9 @@ impl Renderer {
                 Color::RGB(255, 215, 0),
             );
 
-            let sub = "ENTER USERNAME TO START";
-            let sub_w = sub.len() as i32 * 6 * 2;
-            self.draw_bitmap_text(
+            let sub = i18n::t(lang, "enter_name");
+            let sub_w = sub.chars().count() as i32 * 6 * 2;
+            self.draw_text_rendered(
                 sub,
                 dialog.x() + (dialog.width() as i32 - sub_w) / 2,
                 dialog.y() + 75,
@@ -3375,7 +3480,7 @@ impl Renderer {
 
             if !state.text.is_empty() {
                 let display_name: String = state.text.to_uppercase();
-                self.draw_bitmap_text(
+                self.draw_text_rendered(
                     &display_name,
                     input_x + 8,
                     input_y + 12,
@@ -3390,11 +3495,10 @@ impl Renderer {
             self.canvas.set_draw_color(Color::RGB(200, 220, 255));
             self.canvas.fill_rect(cursor_rect).ok();
 
-            let instructions = "PRESS ENTER TO START GAME";
-            let instr_w = instructions.len() as i32 * 6;
-            self.draw_bitmap_text(
+            let instructions = i18n::t(lang, "press_enter_to_start");
+            self.draw_text_centered(
                 instructions,
-                dialog.x() + (dialog.width() as i32 - instr_w) / 2,
+                dialog.x() + (dialog.width() as i32) / 2,
                 dialog.y() + 195,
                 1,
                 Color::RGB(140, 140, 160),
@@ -3420,10 +3524,10 @@ impl Renderer {
             let dialog_h: u32 = 500;
             let dialog = self.draw_dialog_box(dialog_w, dialog_h);
 
-            // Title (centered, scale 3)
-            let title = "WELCOME TO XMAHJONG";
-            let title_w = title.len() as i32 * 6 * 3;
-            self.draw_bitmap_text(
+            // Title
+            let title = "xMahjong";
+            let title_w = title.chars().count() as i32 * 6 * 3;
+            self.draw_text_rendered(
                 title,
                 dialog.x() + (dialog.width() as i32 - title_w) / 2,
                 dialog.y() + 16,
@@ -3432,19 +3536,18 @@ impl Renderer {
             );
 
             // Subtitle
-            let subtitle = "SELECT PLAYER PROFILE OR CREATE NEW";
-            let sub_w = subtitle.len() as i32 * 6;
-            self.draw_bitmap_text(
+            let subtitle = i18n::t(lang, "select_player");
+            self.draw_text_centered(
                 subtitle,
-                dialog.x() + (dialog.width() as i32 - sub_w) / 2,
+                dialog.x() + (dialog.width() as i32) / 2,
                 dialog.y() + 48,
                 1,
                 Color::RGB(160, 200, 230),
             );
 
             // Section 1 Header: Existing Players
-            let section1 = "SAVED PLAYERS";
-            self.draw_bitmap_text(
+            let section1 = i18n::t(lang, "select_player");
+            self.draw_text_rendered(
                 section1,
                 dialog.x() + 30,
                 dialog.y() + 72,
@@ -3455,8 +3558,8 @@ impl Renderer {
             // Pagination info (if more than 1 page)
             let total_pages = state.total_pages();
             if total_pages > 1 {
-                let page_info = format!("PAGE {}/{}", state.page + 1, total_pages);
-                self.draw_bitmap_text(
+                let page_info = i18n::t_param(lang, "page_info", &[("current", &(state.page + 1).to_string()), ("total", &total_pages.to_string())]);
+                self.draw_text_rendered(
                     &page_info,
                     dialog.x() + 320,
                     dialog.y() + 72,
@@ -3512,7 +3615,7 @@ impl Renderer {
                 let name_display = profile.name.to_uppercase();
                 let name_x = card_x + 26;
                 let name_color = if is_selected { Color::RGB(255, 255, 255) } else { Color::RGB(210, 220, 235) };
-                self.draw_bitmap_text(&name_display, name_x, cy + 14, 2, name_color);
+                self.draw_text_rendered(&name_display, name_x, cy + 14, 2, name_color);
 
                 // Badges on the right
                 let mut badge_right_x = card_x + card_w as i32 - 12;
@@ -3527,8 +3630,8 @@ impl Renderer {
 
                 // Save or Progress Badge
                 if profile.has_save {
-                    let badge_text = format!("RESUME LVL {}", profile.save_level);
-                    let b_w = badge_text.len() as i32 * 6;
+                    let badge_text = i18n::t_param(lang, "resume_lvl", &[("level", &profile.save_level.to_string())]);
+                    let b_w = self.text_width(&badge_text, 1) as i32;
                     let b_rect_w = (b_w + 12) as u32;
                     let b_x = card_x + card_w as i32 - b_rect_w as i32 - 12;
                     let b_rect = Rect::new(b_x, cy + 10, b_rect_w, 20);
@@ -3537,7 +3640,7 @@ impl Renderer {
                     self.canvas.fill_rect(b_rect).ok();
                     self.canvas.set_draw_color(Color::RGB(60, 180, 110));
                     self.canvas.draw_rect(b_rect).ok();
-                    self.draw_bitmap_text(&badge_text, b_x + 6, cy + 14, 1, Color::RGB(160, 255, 190));
+                    self.draw_text_rendered(&badge_text, b_x + 6, cy + 14, 1, Color::RGB(160, 255, 190));
                 } else if profile.max_completed_level > 0 {
                     let badge_text = format!("LVL {}/1000", profile.max_completed_level);
                     let b_w = badge_text.len() as i32 * 6;
@@ -3551,8 +3654,8 @@ impl Renderer {
                     self.canvas.draw_rect(b_rect).ok();
                     self.draw_bitmap_text(&badge_text, b_x + 6, cy + 14, 1, Color::RGB(160, 210, 255));
                 } else {
-                    let badge_text = "NEW";
-                    let b_w = badge_text.len() as i32 * 6;
+                    let badge_text = i18n::t(lang, "new");
+                    let b_w = self.text_width(badge_text, 1) as i32;
                     let b_rect_w = (b_w + 12) as u32;
                     let b_x = card_x + card_w as i32 - b_rect_w as i32 - 12;
                     let b_rect = Rect::new(b_x, cy + 10, b_rect_w, 20);
@@ -3561,16 +3664,15 @@ impl Renderer {
                     self.canvas.fill_rect(b_rect).ok();
                     self.canvas.set_draw_color(Color::RGB(80, 90, 110));
                     self.canvas.draw_rect(b_rect).ok();
-                    self.draw_bitmap_text(badge_text, b_x + 6, cy + 14, 1, Color::RGB(180, 190, 210));
+                    self.draw_text_rendered(badge_text, b_x + 6, cy + 14, 1, Color::RGB(180, 190, 210));
                 }
             }
 
             // Section 2: Create New Player
-            let sep_text = "--- OR START AS NEW PLAYER ---";
-            let sep_w = sep_text.len() as i32 * 6;
-            self.draw_bitmap_text(
+            let sep_text = i18n::t(lang, "or_start_new_player");
+            self.draw_text_centered(
                 sep_text,
-                dialog.x() + (dialog.width() as i32 - sep_w) / 2,
+                dialog.x() + (dialog.width() as i32) / 2,
                 dialog.y() + 290,
                 1,
                 Color::RGB(120, 130, 155),
@@ -3604,7 +3706,7 @@ impl Renderer {
 
             if !state.text.is_empty() {
                 let display_name: String = state.text.to_uppercase();
-                self.draw_bitmap_text(
+                self.draw_text_rendered(
                     &display_name,
                     input_x + 8,
                     input_y + 11,
@@ -3612,8 +3714,9 @@ impl Renderer {
                     Color::RGB(240, 240, 255),
                 );
             } else if !is_input_focused {
-                self.draw_bitmap_text(
-                    "ENTER NEW NAME...",
+                let placeholder = i18n::t(lang, "enter_name");
+                self.draw_text_rendered(
+                    placeholder,
                     input_x + 8,
                     input_y + 13,
                     1,
@@ -3640,7 +3743,8 @@ impl Renderer {
             } else {
                 Color::RGB(40, 60, 50)
             };
-            self.draw_labeled_button(btn_x, btn_y, btn_w, btn_h, btn_color, "START");
+            let start_label = i18n::t(lang, "play");
+            self.draw_labeled_button(btn_x, btn_y, btn_w, btn_h, btn_color, start_label);
 
             // Character count indicator (e.g., "3/20")
             let char_count = state.text.chars().count();
@@ -3659,31 +3763,28 @@ impl Renderer {
             );
 
             // Instructions footer
-            let instr1 = "UP/DOWN: SELECT   ENTER: PLAY   TAB: SWITCH";
-            let instr1_w = instr1.len() as i32 * 6;
-            self.draw_bitmap_text(
+            let instr1 = i18n::t(lang, "player_select_nav");
+            self.draw_text_centered(
                 instr1,
-                dialog.x() + (dialog.width() as i32 - instr1_w) / 2,
+                dialog.x() + (dialog.width() as i32) / 2,
                 dialog.y() + 410,
                 1,
                 Color::RGB(170, 180, 200),
             );
 
-            let instr2 = "CLICK ANY PLAYER CARD TO START DIRECTLY";
-            let instr2_w = instr2.len() as i32 * 6;
-            self.draw_bitmap_text(
+            let instr2 = i18n::t(lang, "player_select_click");
+            self.draw_text_centered(
                 instr2,
-                dialog.x() + (dialog.width() as i32 - instr2_w) / 2,
+                dialog.x() + (dialog.width() as i32) / 2,
                 dialog.y() + 438,
                 1,
                 Color::RGB(110, 180, 220),
             );
 
-            let instr3 = "ESC: QUIT";
-            let instr3_w = instr3.len() as i32 * 6;
-            self.draw_bitmap_text(
+            let instr3 = i18n::t(lang, "esc_quit");
+            self.draw_text_centered(
                 instr3,
-                dialog.x() + (dialog.width() as i32 - instr3_w) / 2,
+                dialog.x() + (dialog.width() as i32) / 2,
                 dialog.y() + 466,
                 1,
                 Color::RGB(130, 135, 150),
@@ -3692,21 +3793,19 @@ impl Renderer {
     }
 
     /// Renders the update available dialog.
-    ///
-    /// Shows the user that a newer version is available with options:
-    /// - Download (green) - opens the releases page
-    /// - Not Now (gray) - dismisses the dialog
-    pub fn render_update_dialog(&mut self, current_version: &str, latest_version: &str) {
+    pub fn render_update_dialog(&mut self, current_version: &str, latest_version: &str, lang: Language) {
         self.draw_overlay_backdrop();
 
         let dialog = self.draw_dialog_box(360, 200);
+        let center_x = dialog.x() + dialog.width() as i32 / 2;
 
         // "UPDATE AVAILABLE" title
-        self.draw_bitmap_text(
-            "UPDATE AVAILABLE",
-            dialog.x() + 68,
+        let title = i18n::t(lang, "update_available");
+        self.draw_text_centered(
+            title,
+            center_x,
             dialog.y() + 20,
-            3,
+            2,
             Color::RGB(100, 220, 100),
         );
 
@@ -3740,45 +3839,45 @@ impl Renderer {
         let btn_y = dialog.y() + 140;
 
         // Download button (green)
-        self.draw_labeled_button(btn_start_x, btn_y, btn_w, btn_h, Color::RGB(40, 140, 60), "DOWNLOAD");
+        let download_label = i18n::t(lang, "download");
+        self.draw_labeled_button(btn_start_x, btn_y, btn_w, btn_h, Color::RGB(40, 140, 60), download_label);
 
         // Not Now button (gray)
+        let later_label = i18n::t(lang, "later");
         self.draw_labeled_button(
             btn_start_x + btn_w as i32 + btn_spacing,
             btn_y,
             btn_w,
             btn_h,
             Color::RGB(100, 100, 110),
-            "NOT NOW",
+            later_label,
         );
     }
 
     /// Renders the quit confirmation dialog.
-    ///
-    /// Asks the player to confirm quitting the current game.
-    /// Options:
-    /// - Yes / Confirm (red)
-    /// - No / Cancel (gray)
-    pub fn render_quit_confirmation(&mut self) {
+    pub fn render_quit_confirmation(&mut self, lang: Language) {
         self.draw_overlay_backdrop();
 
-        let dialog = self.draw_dialog_box(300, 180);
+        let dialog = self.draw_dialog_box(320, 180);
+        let center_x = dialog.x() + dialog.width() as i32 / 2;
 
         // "QUIT GAME?" title
-        self.draw_bitmap_text(
-            "QUIT GAME?",
-            dialog.x() + 90,
+        let title = i18n::t(lang, "quit_game");
+        self.draw_text_centered(
+            title,
+            center_x,
             dialog.y() + 24,
-            3,
+            2,
             Color::RGB(255, 160, 160),
         );
 
-        // "PROGRESS WILL BE LOST"
-        self.draw_bitmap_text(
-            "PROGRESS WILL BE LOST",
-            dialog.x() + 30,
+        // Subtitle / Prompt
+        let sub = i18n::t(lang, "quit_prompt");
+        self.draw_text_centered(
+            sub,
+            center_x,
             dialog.y() + 64,
-            2,
+            1,
             Color::RGB(180, 180, 200),
         );
 
@@ -3792,16 +3891,18 @@ impl Renderer {
         let btn_y = dialog.y() + 110;
 
         // Yes button (red) with label
-        self.draw_labeled_button(btn_start_x, btn_y, btn_w, btn_h, Color::RGB(180, 50, 50), "YES");
+        let yes_label = i18n::t(lang, "yes");
+        self.draw_labeled_button(btn_start_x, btn_y, btn_w, btn_h, Color::RGB(180, 50, 50), yes_label);
 
         // No button (gray) with label
+        let no_label = i18n::t(lang, "no");
         self.draw_labeled_button(
             btn_start_x + btn_w as i32 + btn_spacing,
             btn_y,
             btn_w,
             btn_h,
             Color::RGB(100, 100, 110),
-            "NO",
+            no_label,
         );
     }
 
@@ -4314,6 +4415,33 @@ fn bitmap_glyph(ch: char) -> Option<&'static [u8; 7]> {
         ']' => Some(&[0b01110, 0b00010, 0b00010, 0b00010, 0b00010, 0b00010, 0b01110]),
         '<' => Some(&[0b00010, 0b00100, 0b01000, 0b10000, 0b01000, 0b00100, 0b00010]),
         '>' => Some(&[0b01000, 0b00100, 0b00010, 0b00001, 0b00010, 0b00100, 0b01000]),
+        '•' | '·' => Some(&[0b00000, 0b00000, 0b00100, 0b01110, 0b00100, 0b00000, 0b00000]),
+        '✓' => Some(&[0b00000, 0b00001, 0b00010, 0b10100, 0b01000, 0b00000, 0b00000]),
+        'Á' | 'À' | 'Â' | 'Ä' | 'Ã' | 'Å' | 'Ą' => Some(&[0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001]),
+        'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' | 'ą' => Some(&[0b00100, 0b00000, 0b01110, 0b00001, 0b01111, 0b10001, 0b01111]),
+        'É' | 'È' | 'Ê' | 'Ë' | 'Ę' => Some(&[0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111]),
+        'é' | 'è' | 'ê' | 'ë' | 'ę' => Some(&[0b00100, 0b00000, 0b01110, 0b10001, 0b11111, 0b10000, 0b01110]),
+        'Í' | 'Ì' | 'Î' | 'Ï' | 'İ' => Some(&[0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110]),
+        'í' | 'ì' | 'î' | 'ï' | 'ı' => Some(&[0b00100, 0b00000, 0b01100, 0b00100, 0b00100, 0b00100, 0b01110]),
+        'Ó' | 'Ò' | 'Ô' | 'Ö' | 'Õ' => Some(&[0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110]),
+        'ó' | 'ò' | 'ô' | 'ö' | 'õ' => Some(&[0b00100, 0b00000, 0b01110, 0b10001, 0b10001, 0b10001, 0b01110]),
+        'Ú' | 'Ù' | 'Û' | 'Ü' => Some(&[0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110]),
+        'ú' | 'ù' | 'û' | 'ü' => Some(&[0b00100, 0b00000, 0b10001, 0b10001, 0b10001, 0b10011, 0b01101]),
+        'Ñ' | 'Ń' => Some(&[0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001]),
+        'ñ' | 'ń' => Some(&[0b01010, 0b00000, 0b11110, 0b10001, 0b10001, 0b10001, 0b10001]),
+        'Ç' | 'Ć' => Some(&[0b01110, 0b10001, 0b10000, 0b10000, 0b10001, 0b01110, 0b00100]),
+        'ç' | 'ć' => Some(&[0b00000, 0b01110, 0b10000, 0b10000, 0b01110, 0b00100, 0b00000]),
+        'Ş' | 'Ś' => Some(&[0b01110, 0b10001, 0b10000, 0b01110, 0b00001, 0b10001, 0b01110]),
+        'ş' | 'ś' => Some(&[0b00000, 0b01111, 0b10000, 0b01110, 0b00001, 0b11110, 0b00100]),
+        'Ğ' => Some(&[0b01010, 0b00000, 0b01110, 0b10000, 0b10111, 0b10001, 0b01110]),
+        'ğ' => Some(&[0b01010, 0b00000, 0b01111, 0b10001, 0b01111, 0b00001, 0b01110]),
+        'Ł' => Some(&[0b10000, 0b10100, 0b11110, 0b10000, 0b10000, 0b10000, 0b11111]),
+        'ł' => Some(&[0b01100, 0b00100, 0b01110, 0b00100, 0b00100, 0b00100, 0b01110]),
+        'Ź' | 'Ż' => Some(&[0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111]),
+        'ź' | 'ż' => Some(&[0b00100, 0b00000, 0b11111, 0b00010, 0b00100, 0b01000, 0b11111]),
+        'ß' => Some(&[0b01100, 0b10010, 0b11100, 0b10010, 0b10010, 0b11100, 0b10000]),
+        '¡' => Some(&[0b00100, 0b00000, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100]),
+        '¿' => Some(&[0b00100, 0b00000, 0b00100, 0b01100, 0b10000, 0b10001, 0b01110]),
         _ => None,
     }
 }

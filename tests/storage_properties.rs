@@ -66,7 +66,10 @@ proptest! {
     fn property_18_mute_state_persistence_round_trip(
         muted in proptest::bool::ANY,
     ) {
-        let settings = Settings { muted };
+        let settings = Settings {
+            muted,
+            ..Default::default()
+        };
 
         // Serialize to JSON (simulates save)
         let json = serde_json::to_string(&settings)
